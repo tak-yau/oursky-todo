@@ -1,0 +1,143 @@
+# ====================
+# Tool-Specific Directories
+# ====================
+
+.opencode/
+.cursor/
+
+# ====================
+# Build Artifacts
+# ====================
+
+# Scala/SBT build outputs (comprehensive)
+/target/
+target.old/
+**/target/
+**/target.old/
+*.class
+*.tasty
+*.jar
+.cache
+!backend/*.jar  # Keep production JARs if needed
+
+# SBT cache and logs
+.sbt-cache/
+sbt_server.pid
+*.log
+
+# Node.js frontend build
+frontend/dist/
+frontend/node_modules/
+frontend/.vite/
+
+# ====================
+# IDE Files
+# ====================
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# VS Code
+.vscode/
+
+# Eclipse
+.classpath
+.project
+.settings/
+.metadata/
+
+# ====================
+# OS Files
+# ====================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+*.swp
+*.swo
+
+# ====================
+# Environment & Secrets
+# ====================
+
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+credentials.json
+service-account.json
+
+# ====================
+# Downloaded Binaries (don't track)
+# ====================
+
+*.tar.gz
+*.tar.bz2
+*.zip
+!node_modules/**/*.tgz  # Allow npm package archives
+
+# GKE auth plugin binary (re-downloadable)
+gke-gcloud-auth-plugin*
+
+# ====================
+# Docker
+# ====================
+
+# Docker build cache (optional - uncomment if needed)
+# .docker/
+
+# ====================
+# Logs & Temp Files
+# ====================
+
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ====================
+# Test Coverage
+# ====================
+
+coverage/
+.nyc_output/
+*.lcov
+
+# ====================
+# Package Lock Files
+# Keep these for reproducible builds - DO NOT ignore:
+# package-lock.json
+# yarn.lock
+
+# ====================
+# Misc
+# ====================
+
+# Backup files
+*.bak
+*.backup
+
+# Temporary files
+tmp/
+temp/
+
+# Compiled protobuf files (if any)
+*.pb.go
+*.pb.java
+*.pb.py

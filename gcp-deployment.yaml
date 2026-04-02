@@ -1,0 +1,230 @@
+# GCP Deployment Manifest - Optimized for Minimum Cost
+# Resource limits tuned for e2-micro/small instances
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: todo-app-prod
+  labels:
+    app: todo
+    environment: production
+
+---
+# Secret will be created by deploy.sh with actual API key
+apiVersion: v1
+kind: Secret
+metadata:
+  name: todo-secret
+  namespace: todo-app-prod
+type: Opaque
+stringData:
+  gemini-api-key: "${GEMINI_API_KEY}"
+
+---
+# Backend Deployment - Scala/http4s API server
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todo-backend-deployment
+  namespace: todo-app-prod
+  labels:
+    app: todo-backend
+    version: "v1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: todo-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: todo-backend
+        version: "v1"
+      annotations:
+        prometheus.io/scrape: "false"  # Disable metrics to save resources
+    spec:
+      terminationGracePeriodSeconds: 30
+      imagePullSecrets:
+      - name: gcr-pull-secret
+      containers:
+      - name: todo-backend
+        image: gcr.io/oursky-todo-1775160139/todo-backend:v3
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        env:
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: todo-secret
+              key: gemini-api-key
+        - name: JAVA_OPTS
+          value: "-Xms64m -Xmx200m -XX:+UseG1GC -XX:MaxGCPauseMillis=50 -Djava.net.preferIPv4Stack=true"
+        # Resource requests optimized for e2-small (~4GB total, ~1.8GB system overhead)
+        resources:
+          requests:
+            memory: "96Mi"      # Realistic minimum for Scala JVM
+            cpu: "50m"         # 0.05 CPU cores
+          limits:
+            memory: "384Mi"    # Generous limit for stable operation
+            cpu: "200m"        # Max 0.2 CPU cores
+        livenessProbe:
+          httpGet:
+            path: /api/todos
+            port: 8080
+          initialDelaySeconds: 120   # e2-micro cold start is slow
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/todos
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+              - ALL
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - todo-backend
+              topologyKey: kubernetes.io/hostname
+
+---
+# Backend Service - Internal only (ClusterIP)
+apiVersion: v1
+kind: Service
+metadata:
+  name: todo-backend-service
+  namespace: todo-app-prod
+  labels:
+    app: todo-backend
+spec:
+  type: ClusterIP
+  selector:
+    app: todo-backend
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+
+---
+# Frontend Deployment - Vue.js + Nginx
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todo-frontend-deployment
+  namespace: todo-app-prod
+  labels:
+    app: todo-frontend
+    version: "v1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: todo-frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: todo-frontend
+        version: "v1"
+    spec:
+      terminationGracePeriodSeconds: 30
+      imagePullSecrets:
+      - name: gcr-pull-secret
+      containers:
+      - name: todo-frontend
+        image: gcr.io/oursky-todo-1775160139/todo-frontend:v3
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+          protocol: TCP
+        env:
+        - name: VITE_API_BASE_URL
+          value: "http://todo-backend-service:8080"
+        # MVP resources for e2-micro (minimal nginx footprint)
+        resources:
+          requests:
+            memory: "16Mi"      # Minimal for static serving
+            cpu: "10m"         # 0.01 CPU cores
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 101
+          capabilities:
+            drop:
+              - ALL
+        volumeMounts:
+        - name: tmp-volume
+          mountPath: /var/cache/nginx
+        - name: run-volume
+          mountPath: /var/run
+      volumes:
+      - name: tmp-volume
+        emptyDir: {}
+      - name: run-volume
+        emptyDir: {}
+
+---
+# Frontend Service - LoadBalancer for external access
+apiVersion: v1
+kind: Service
+metadata:
+  name: todo-frontend-service
+  namespace: todo-app-prod
+  labels:
+    app: todo-frontend
+spec:
+  type: LoadBalancer
+  selector:
+    app: todo-frontend
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  sessionAffinity: None  # No sticky sessions needed for stateless frontend
