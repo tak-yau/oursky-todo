@@ -54,9 +54,9 @@ echo "  ✓ Manifests applied successfully"
 
 # Scale up deployments
 echo -e "\n${GREEN}[3/5] Scaling up deployments...${NC}"
-kubectl scale deployment todo-backend-deployment --replicas=1 -n "$NAMESPACE" --timeout="${TIMEOUT}s"
-kubectl scale deployment todo-frontend-deployment --replicas=1 -n "$NAMESPACE" --timeout="${TIMEOUT}s"
-echo "  ✓ Deployments scaled to 1 replica each"
+kubectl scale deployment todo-backend-deployment --replicas=2 -n "$NAMESPACE" --timeout="${TIMEOUT}s"
+kubectl scale deployment todo-frontend-deployment --replicas=2 -n "$NAMESPACE" --timeout="${TIMEOUT}s"
+echo "  ✓ Deployments scaled to 2 replicas each"
 
 # Wait for pods to be ready
 echo -e "\n${GREEN}[4/5] Waiting for pods to become ready...${NC}"

@@ -85,8 +85,6 @@ spec:
         prometheus.io/scrape: "false"  # Disable metrics to save resources
     spec:
       terminationGracePeriodSeconds: 30
-      imagePullSecrets:
-      - name: gcr-pull-secret
       initContainers:
       - name: db-migrate
         image: postgres:17-alpine
@@ -170,28 +168,29 @@ spec:
               name: todo-secret
               key: supabase-password
         - name: JAVA_OPTS
-          value: "-Xms64m -Xmx200m -XX:+UseG1GC -XX:MaxGCPauseMillis=50 -Djava.net.preferIPv4Stack=true"
-        # Resource requests optimized for e2-small (~4GB total, ~1.8GB system overhead)
-        resources:
-          requests:
-            memory: "96Mi"      # Realistic minimum for Scala JVM
-            cpu: "50m"         # 0.05 CPU cores
-          limits:
-            memory: "384Mi"    # Generous limit for stable operation
-            cpu: "200m"        # Max 0.2 CPU cores
+          value: "-Xms64m -Xmx192m -XX:+UseG1GC -XX:MaxGCPauseMillis=50 -Djava.net.preferIPv4Stack=true -XX:MaxMetaspaceSize=128m"
+        # Startup probe for slow JVM initialization
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 18
         livenessProbe:
           httpGet:
-            path: /api/todos
+            path: /health
             port: 8080
-          initialDelaySeconds: 120   # e2-micro cold start is slow
-          periodSeconds: 30
-          timeoutSeconds: 10
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /api/todos
+            path: /health
             port: 8080
-          initialDelaySeconds: 60
+          initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 6
@@ -264,8 +263,6 @@ spec:
         version: "v1"
     spec:
       terminationGracePeriodSeconds: 30
-      imagePullSecrets:
-      - name: gcr-pull-secret
       containers:
       - name: todo-frontend
         image: gcr.io/${PROJECT_ID}/todo-frontend:latest

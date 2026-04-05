@@ -9,6 +9,10 @@ import io.circe.generic.auto._
 
 class TodoRoutes(todoService: TodoService, geminiService: Option[GeminiService]) {
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
+    // ============ HEALTH CHECK ============
+    case GET -> Root / "health" =>
+      Ok("""{"status": "ok"}""")
+
     // ============ AI ROUTES (must be before todos to avoid conflict) ============
     case req @ POST -> Root / "api" / "ai" / "suggestions" if geminiService.isDefined =>
       req.as[AISuggestionRequest].flatMap { body =>

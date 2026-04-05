@@ -35,9 +35,13 @@ enablePlugins(JavaAppPackaging, DockerPlugin)
 
 // Assembly configuration for fat JAR
 assembly / assemblyMergeStrategy := {
-  case PathList("META-INF", xs @ _*) =>
+  case PathList("META-INF", "MANIFEST.MF") =>
     MergeStrategy.discard
-  case x if x.endsWith(".MF") =>
+  case PathList("META-INF", "services", xs @ _*) =>
+    MergeStrategy.concat
+  case PathList("META-INF", "io.netty.versions.properties") =>
+    MergeStrategy.first
+  case PathList("META-INF", xs @ _*) =>
     MergeStrategy.discard
   case x if x.endsWith(".properties") =>
     MergeStrategy.first

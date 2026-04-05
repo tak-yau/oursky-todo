@@ -87,8 +87,8 @@ full_restart() {
     
     # Start all deployments
     echo -e "\n${GREEN}[3/4] Starting all deployments...${NC}"
-    kubectl scale deployment todo-backend-deployment --replicas=1 -n "$NAMESPACE" --timeout="${TIMEOUT}s"
-    kubectl scale deployment todo-frontend-deployment --replicas=1 -n "$NAMESPACE" --timeout="${TIMEOUT}s"
+    kubectl scale deployment todo-backend-deployment --replicas=2 -n "$NAMESPACE" --timeout="${TIMEOUT}s"
+    kubectl scale deployment todo-frontend-deployment --replicas=2 -n "$NAMESPACE" --timeout="${TIMEOUT}s"
     echo "  ✓ All deployments started"
     
     # Wait for pods to be ready
