@@ -8,7 +8,7 @@
 
 | Feature | Why It Matters |
 |---------|----------------|
-| **AI Subtask Suggestions** | Type "Plan vacation" → get suggested subtasks like "Book flights", "Research hotels" |
+| **AI Subtask Suggestions** | Type "Plan vacation" → get suggested subtasks via Qwen 3.6 Plus (with Gemini fallback) |
 | **Persistent Storage** | Data survives server restarts with Slick ORM and PostgreSQL/H2 |
 | **One-Command Deploy** | Production-ready on GCP with Supabase in minutes |
 | **Cost-Optimized** | Runs for ~$5/month with e2-micro instances + Supabase free tier |
@@ -23,7 +23,7 @@
 
 ```bash
 # Backend (uses local H2 database by default)
-cd backend && export GEMINI_API_KEY="your-key" && sbt run
+cd backend && export QWEN_API_KEY="your-key" && export GEMINI_API_KEY="your-key" && sbt run
 
 # Frontend (new terminal)
 cd frontend && npm install && npm run dev
@@ -49,6 +49,7 @@ cd backend && sbt run
 ```bash
 # Set required environment variables
 export GCP_PROJECT_ID="your-gcp-project"
+export QWEN_API_KEY="your-qwen-key"
 export GEMINI_API_KEY="your-gemini-key"
 export SUPABASE_PASSWORD="your-supabase-password"
 
@@ -58,7 +59,8 @@ export SUPABASE_PASSWORD="your-supabase-password"
 
 **Required credentials:**
 - `GCP_PROJECT_ID` — Your GCP project ID
-- `GEMINI_API_KEY` — Google Gemini API key for AI suggestions
+- `QWEN_API_KEY` — OpenRouter API key for Qwen 3.6 Plus (Primary AI)
+- `GEMINI_API_KEY` — Google Gemini API key (Fallback AI)
 - `SUPABASE_PASSWORD` — Supabase PostgreSQL database password
 
 **Defaults (can be overridden):**
@@ -73,7 +75,7 @@ See [DEPLOYMENT-README.md](DEPLOYMENT-README.md) for detailed deployment guide.
 
 ## 🛠️ Tech Stack
 
-**Backend:** Scala 3, http4s, Cats Effect, Slick 3.5 | **Frontend:** Vue 3, Vite | **AI:** Google Gemini API | **Database:** PostgreSQL (Supabase) / H2 (dev) | **Infrastructure:** GCP GKE, Kubernetes
+**Backend:** Scala 3, http4s, Cats Effect, Slick 3.5 | **Frontend:** Vue 3, Vite | **AI:** Qwen 3.6 Plus & Google Gemini | **Database:** PostgreSQL (Supabase) / H2 (dev) | **Infrastructure:** GCP GKE, Kubernetes
 
 ---
 

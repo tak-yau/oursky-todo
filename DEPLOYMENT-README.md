@@ -15,7 +15,8 @@ This guide explains how to deploy the TODO application with AI suggestions to a 
 │                                                                  │
 │  ┌─────────────────────┐      ┌──────────────────────────────┐  │
 │  │ LoadBalancer Svc    │      │  todo-secret (K8s Secret)    │  │
-│  │ (port 80 → 80)      │      │  - Gemini API key            │  │
+│  │ (port 80 → 80)      │      │  - Qwen API key             │  │
+│  │                      │      │  - Gemini API key            │  │
 │  └──────────┬──────────┘      │  - Supabase credentials      │  │
 │             │                 └──────────────┬───────────────┘  │
 │             ▼                                │                  │
@@ -56,6 +57,7 @@ This guide explains how to deploy the TODO application with AI suggestions to a 
 ```bash
 # Set required environment variables
 export GCP_PROJECT_ID="your-gcp-project"
+export QWEN_API_KEY="your-qwen-key"
 export GEMINI_API_KEY="your-gemini-key"
 export SUPABASE_PASSWORD="your-supabase-password"
 
@@ -120,7 +122,7 @@ To add future migrations, create new SQL files (e.g., `V2__add_indexes.sql`) and
 For local development, the app uses an embedded H2 database by default. No external database setup is required.
 
 ```bash
-cd backend && export GEMINI_API_KEY="your-key" && sbt run
+cd backend && export QWEN_API_KEY="your-key" && export GEMINI_API_KEY="your-key" && sbt run
 ```
 
 To connect to a local PostgreSQL instance instead:
@@ -161,6 +163,7 @@ kubectl create namespace todo-app-prod --dry-run=client -o yaml | kubectl apply 
 2. Create the secret with your credentials:
 
 ```bash
+export QWEN_API_KEY="your-qwen-key"
 export GEMINI_API_KEY="your-api-key"
 export SUPABASE_HOST="aws-1-us-east-2.pooler.supabase.com"
 export SUPABASE_PORT="5432"
@@ -202,7 +205,7 @@ kubectl -n todo-app-prod get services
 The deployment includes:
 
 - **Namespace**: `todo-app-prod` — Isolated environment for production
-- **todo-secret**: Secret containing Gemini API key and Supabase credentials
+- **todo-secret**: Secret containing Qwen and Gemini API keys and Supabase credentials
 - **db-migrations**: ConfigMap containing SQL migration scripts
 - **todo-backend-deployment**: Scala backend service (2 replicas) running on port 8080
   - **Init container**: `db-migrate` — Runs database migrations before app starts
