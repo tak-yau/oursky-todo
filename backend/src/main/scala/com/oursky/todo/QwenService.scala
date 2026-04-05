@@ -55,7 +55,7 @@ Example: ["Step 1", "Step 2", "Step 3", "Step 4", "Step 5"]"""
           "content" -> Json.fromString(prompt)
         )
       ),
-      "temperature" -> Json.fromDoubleOrNull(0.7),
+      "temperature" -> Json.fromDoubleOrNull(0.9),
       "max_tokens" -> Json.fromInt(512)
     )
 
