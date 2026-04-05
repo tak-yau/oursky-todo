@@ -1,30 +1,60 @@
 # Kubernetes Deployment for TODO App
 
-This guide explains how to deploy the TODO application with AI suggestions to a Kubernetes cluster.
+This guide explains how to deploy the TODO application with AI suggestions to a Kubernetes cluster on GCP with Supabase as the production database.
+
+## Architecture
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│   GKE Cluster   │     │   Supabase DB    │     │   GCR Registry   │
+│                 │     │                  │     │                  │
+│  ┌───────────┐  │     │  ┌────────────┐  │     │  ┌────────────┐  │
+│  │ Frontend  │──┼────►│  │ PostgreSQL │  │     │  │ todo-      │  │
+│  │ (Vue+Nginx)│  │     │  │ (Supabase) │  │     │  │ backend    │  │
+│  └───────────┘  │     │  └────────────┘  │     │  └────────────┘  │
+│        ▲        │     │                  │     │  ┌────────────┐  │
+│        │        │     │                  │     │  │ todo-      │  │
+│  ┌───────────┐  │     │                  │     │  │ frontend   │  │
+│  │ Backend   │──┼─────┼──────────────────┼────►│  └────────────┘  │
+│  │ (Scala)   │  │     │                  │     └──────────────────┘
+│  └───────────┘  │     └──────────────────┘
+└─────────────────┘
+```
 
 ## Quick Start
 
 ### Deploy to GCP (Recommended)
+
 ```bash
-./deploy.sh  # Interactive one-command deployment
+# Set required environment variables
+export GCP_PROJECT_ID="your-gcp-project"
+export GEMINI_API_KEY="your-gemini-key"
+export SUPABASE_PASSWORD="your-supabase-password"
+
+# Deploy (prompts for any missing values)
+./deploy.sh
 ```
 
 ### Manual Deployment
+
 Follow the steps below for manual deployment or non-GCP clusters.
 
 ## Building Docker Images
 
 ### For GCP Deployment (via deploy.sh)
+
 The deployment script automatically builds and pushes images:
+
 ```bash
 # Backend image pushed to GCR
-gcr.io/your-project-id/todo-backend:v3
+gcr.io/your-project-id/todo-backend:latest
 
-# Frontend image pushed to GCR  
-gcr.io/your-project-id/todo-frontend:v3
+# Frontend image pushed to GCR
+gcr.io/your-project-id/todo-frontend:latest
 ```
 
 ### For Local/Manual Deployment
+
 ```bash
 # Build backend image
 docker build -f Dockerfile.backend -t todo-backend:latest .
@@ -33,42 +63,92 @@ docker build -f Dockerfile.backend -t todo-backend:latest .
 docker build -f Dockerfile.frontend -t todo-frontend:latest .
 ```
 
-## Deploying to Kubernetes
+## Database Configuration
 
-### Using Cluster Management Scripts (Recommended)
+### Supabase Setup (Production)
 
-After initial deployment, use the management scripts:
+1. Create a Supabase project at https://supabase.com
+2. Go to Project Settings → Database → Connection string
+3. Note the following values:
+   - **Host**: e.g., `aws-1-us-east-2.pooler.supabase.com`
+   - **Port**: `5432` (direct) or `6543` (pooler)
+   - **User**: e.g., `postgres.<project-ref>`
+   - **Password**: Your database password
+   - **Database**: `postgres`
 
-**Start the cluster:**
+### Schema Initialization
+
+Database schema is automatically initialized on deployment via a Kubernetes init container:
+
+1. The `db-migrate` init container runs before the backend starts
+2. It uses `postgres:17-alpine` with `psql` to execute migration scripts
+3. Migration scripts are stored in `backend/src/main/resources/db/` as `V1__initial_schema.sql`
+4. Uses `CREATE TABLE IF NOT EXISTS` for idempotent execution — safe to run on every deploy
+
+To add future migrations, create new SQL files (e.g., `V2__add_indexes.sql`) and update the init container command in `gcp-deployment.yaml`.
+
+### Local Development (H2)
+
+For local development, the app uses an embedded H2 database by default. No external database setup is required.
+
 ```bash
-./start-cluster.sh
+cd backend && export GEMINI_API_KEY="your-key" && sbt run
 ```
 
-This will:
-- Create namespace `todo-app-prod` if needed
-- Apply all Kubernetes manifests from `gcp-deployment.yaml`
-- Scale deployments to 1 replica each
-- Wait for pods to become ready
-- Display the external IP address
+To connect to a local PostgreSQL instance instead:
+
+```bash
+export DB_TYPE="postgres"
+export DB_URL="jdbc:postgresql://localhost:5432/todo_dev"
+export DB_USER="postgres"
+export DB_PASSWORD="password"
+cd backend && sbt run
+```
+
+## Deploying to Kubernetes
+
+### Using deploy.sh (Recommended)
+
+The `deploy.sh` script handles the entire deployment process:
+
+1. Validates prerequisites (gcloud, kubectl, docker)
+2. Builds backend JAR with `sbt assembly`
+3. Builds and pushes Docker images to GCR
+4. Creates GKE cluster (if not exists)
+5. Applies Kubernetes manifests with environment variable substitution
+6. Waits for pods to become ready
+
+```bash
+./deploy.sh
+```
 
 ### Manual Deployment
 
 1. Create the namespace and apply manifests:
+
 ```bash
-kubectl apply -f gcp-deployment.yaml
+kubectl create namespace todo-app-prod --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-2. Update the secret with your actual Gemini API key:
+2. Create the secret with your credentials:
+
 ```bash
-export GEMINI_API_KEY="your-api-key-here"
-kubectl -n todo-app-prod create secret generic todo-secret \
-  --from-literal=gemini-api-key="$GEMINI_API_KEY" --dry-run=client -o yaml | kubectl apply -f -
+export GEMINI_API_KEY="your-api-key"
+export SUPABASE_HOST="aws-1-us-east-2.pooler.supabase.com"
+export SUPABASE_PORT="5432"
+export SUPABASE_USER="postgres.<project-ref>"
+export SUPABASE_PASSWORD="your-password"
+export SUPABASE_DB="postgres"
+export PROJECT_ID="your-gcp-project"
+
+envsubst < gcp-deployment.yaml | kubectl apply -f -
 ```
 
-3. Scale deployments:
+3. Wait for deployments to roll out:
+
 ```bash
-kubectl scale deployment todo-backend-deployment --replicas=1 -n todo-app-prod
-kubectl scale deployment todo-frontend-deployment --replicas=1 -n todo-app-prod
+kubectl rollout status deployment/todo-backend-deployment -n todo-app-prod
+kubectl rollout status deployment/todo-frontend-deployment -n todo-app-prod
 ```
 
 ## Accessing the Application
@@ -76,6 +156,7 @@ kubectl scale deployment todo-frontend-deployment --replicas=1 -n todo-app-prod
 After deployment, you can access the application:
 
 1. Get the external IP of the frontend service:
+
 ```bash
 kubectl -n todo-app-prod get services
 ```
@@ -83,6 +164,7 @@ kubectl -n todo-app-prod get services
 2. Visit `http://<EXTERNAL-IP>` in your browser.
 
 3. Or use the start script which displays the URL automatically:
+
 ```bash
 ./start-cluster.sh  # Shows: Access your application at: http://<IP>
 ```
@@ -90,56 +172,70 @@ kubectl -n todo-app-prod get services
 ## Components
 
 The deployment includes:
-- **Namespace**: `todo-app-prod` - Isolated environment for production
-- **todo-backend-deployment**: Scala backend service running on port 8080
+
+- **Namespace**: `todo-app-prod` — Isolated environment for production
+- **todo-secret**: Secret containing Gemini API key and Supabase credentials
+- **db-migrations**: ConfigMap containing SQL migration scripts
+- **todo-backend-deployment**: Scala backend service (2 replicas) running on port 8080
+  - **Init container**: `db-migrate` — Runs database migrations before app starts
 - **todo-backend-service**: Internal ClusterIP service for backend
-- **todo-frontend-deployment**: Vue frontend with Nginx running on port 80
+- **todo-frontend-deployment**: Vue frontend with Nginx (2 replicas) running on port 80
 - **todo-frontend-service**: External LoadBalancer service for frontend access
-- **todo-secret**: Secret containing the Gemini API key
 
 ## Cluster Management Scripts
 
 ### Start the Cluster
-Brings all components up and scales to 1 replica each:
+
+Brings all components up and scales to 2 replicas each:
+
 ```bash
 ./start-cluster.sh
 ```
 
 **What it does:**
+
 - Creates namespace `todo-app-prod` if needed
 - Applies Kubernetes manifests from `gcp-deployment.yaml`
-- Scales deployments to 1 replica each
+- Scales deployments to 2 replicas each
 - Waits for pods to become ready
 - Displays the external IP address
 
 ### Stop the Cluster
+
 Gracefully stops all pods while preserving configuration:
+
 ```bash
 ./stop-cluster.sh
 ```
 
 **What it does:**
+
 - Scales all deployments to 0 replicas
 - Waits for pod termination
 - Preserves services (to avoid reconfiguration)
 
 **Note:** To stop LoadBalancer charges completely:
+
 ```bash
 kubectl delete svc -n todo-app-prod --all
 ```
 
 ### Restart the Cluster
+
 Performs a zero-downtime rolling restart:
+
 ```bash
 ./restart-cluster.sh  # Rolling restart (recommended)
 ```
 
 For full stop/start instead:
+
 ```bash
 ROLLING=false ./restart-cluster.sh
 ```
 
 **What it does:**
+
 - Restarts backend first, waits for completion
 - Then restarts frontend
 - Maintains availability throughout
@@ -155,38 +251,65 @@ ROLLING=false ./restart-cluster.sh
 
 ## Scaling
 
-To scale the deployments:
+Default production configuration uses 2 replicas for both frontend and backend. To scale further:
+
 ```bash
 # Scale backend
-kubectl -n todo-app-prod scale deployment/todo-backend-deployment --replicas=2
+kubectl -n todo-app-prod scale deployment/todo-backend-deployment --replicas=3
 
 # Scale frontend
-kubectl -n todo-app-prod scale deployment/todo-frontend-deployment --replicas=2
+kubectl -n todo-app-prod scale deployment/todo-frontend-deployment --replicas=3
 ```
 
 ## Troubleshooting
 
 ### Check pod status:
+
 ```bash
 kubectl get pods -n todo-app-prod
 ```
 
 ### View pod logs:
+
 ```bash
 # Backend logs
 kubectl logs -f -l app=todo-backend -n todo-app-prod
 
 # Frontend logs
-kubectl logs -f -l app=todo-frontend -n todo-app-prod
+kubectl logs -f -l todo-frontend -n todo-app-prod
+
+# Init container (database migration) logs
+kubectl logs -l app=todo-backend -n todo-app-prod -c db-migrate
 ```
 
 ### Check rollout status:
+
 ```bash
 kubectl rollout status deployment/todo-backend-deployment -n todo-app-prod
 kubectl rollout status deployment/todo-frontend-deployment -n todo-app-prod
 ```
 
 ### View rollout history:
+
 ```bash
 kubectl rollout history deployment/todo-backend-deployment -n todo-app-prod
 ```
+
+### Database connectivity issues:
+
+```bash
+# Check if init container completed successfully
+kubectl describe pod -l app=todo-backend -n todo-app-prod | grep -A 10 "Init Containers"
+
+# View migration logs
+kubectl logs -l app=todo-backend -n todo-app-prod -c db-migrate --previous
+```
+
+### Common issues:
+
+| Issue | Solution |
+|-------|----------|
+| Backend pod not starting | Check init container logs for migration errors |
+| 502 Bad Gateway | Backend may still be starting up; check readiness probe |
+| Database connection refused | Verify Supabase credentials and network access |
+| ImagePullBackOff | Ensure GCR images exist and pull secrets are configured |
