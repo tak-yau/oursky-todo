@@ -24,19 +24,18 @@ class TodoRoutes(todoService: TodoService, geminiService: Option[GeminiService])
 
     // ============ TODO ROUTES ============
     case GET -> Root / "api" / "todos" =>
-      Ok(todoService.getAll)
+      todoService.getAll.flatMap(todos => Ok(todos))
 
     case req @ POST -> Root / "api" / "todos" =>
       req.as[CreateTodoRequest].flatMap { body =>
-        val todo = todoService.create(body.title)
-        Created(todo)
+        todoService.create(body.title).flatMap(todo => Created(todo))
       }
 
     // ============ SUBTASK ROUTES (must be BEFORE single todo route) ============
     // Create subtask: POST /api/todos/{todoId}/subtasks
     case req @ POST -> Root / "api" / "todos" / LongVar(todoId) / "subtasks" =>
       req.as[AddSubtaskRequest].flatMap { body =>
-        todoService.addSubtask(todoId, body.subtaskTitle, body.parentId) match {
+        todoService.addSubtask(todoId, body.subtaskTitle, body.parentId).flatMap {
           case Some(todo) => Ok(todo)
           case None => NotFound(s"""{"error": "Todo not found"}""")
         }
@@ -45,7 +44,7 @@ class TodoRoutes(todoService: TodoService, geminiService: Option[GeminiService])
     // Update subtask: PUT /api/todos/{todoId}/subtasks/{subtaskId}
     case req @ PUT -> Root / "api" / "todos" / LongVar(todoId) / "subtasks" / LongVar(subtaskId) =>
       req.as[UpdateTodoRequest].flatMap { body =>
-        todoService.updateSubtask(todoId, subtaskId, body.completed) match {
+        todoService.updateSubtask(todoId, subtaskId, body.completed).flatMap {
           case Some(todo) => Ok(todo)
           case None => NotFound(s"""{"error": "Subtask not found"}""")
         }
@@ -53,14 +52,14 @@ class TodoRoutes(todoService: TodoService, geminiService: Option[GeminiService])
 
     // Delete subtask: DELETE /api/todos/{todoId}/subtasks/{subtaskId}
     case DELETE -> Root / "api" / "todos" / LongVar(todoId) / "subtasks" / LongVar(subtaskId) =>
-      todoService.deleteSubtask(todoId, subtaskId) match {
+      todoService.deleteSubtask(todoId, subtaskId).flatMap {
         case Some(_) => NoContent()
         case None => NotFound(s"""{"error": "Subtask not found"}""")
       }
 
     // Get single todo: GET /api/todos/{id}
     case GET -> Root / "api" / "todos" / LongVar(id) =>
-      todoService.getById(id) match {
+      todoService.getById(id).flatMap {
         case Some(todo) => Ok(todo)
         case None => NotFound(s"""{"error": "Todo not found"}""")
       }
@@ -68,7 +67,7 @@ class TodoRoutes(todoService: TodoService, geminiService: Option[GeminiService])
     // Update todo: PUT /api/todos/{id}
     case req @ PUT -> Root / "api" / "todos" / LongVar(id) =>
       req.as[UpdateTodoRequest].flatMap { body =>
-        todoService.update(id, body.title, body.completed) match {
+        todoService.update(id, body.title, body.completed).flatMap {
           case Some(todo) => Ok(todo)
           case None => NotFound(s"""{"error": "Todo not found"}""")
         }
@@ -76,8 +75,10 @@ class TodoRoutes(todoService: TodoService, geminiService: Option[GeminiService])
 
     // Delete todo: DELETE /api/todos/{id}
     case DELETE -> Root / "api" / "todos" / LongVar(id) =>
-      if (todoService.delete(id)) NoContent()
-      else NotFound(s"""{"error": "Todo not found"}""")
+      todoService.delete(id).flatMap { deleted =>
+        if (deleted) NoContent()
+        else NotFound(s"""{"error": "Todo not found"}""")
+      }
 
     // ============ NOTIFICATIONS ============
     case req @ POST -> Root / "api" / "notifications" =>
