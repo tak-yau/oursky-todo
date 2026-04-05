@@ -1,11 +1,11 @@
 package com.oursky.todo.db
 
-import slick.jdbc.H2Profile
-import slick.jdbc.H2Profile.api._
+import slick.jdbc.JdbcProfile
 import com.oursky.todo.db.TodoRow
 import com.oursky.todo.db.SubtaskRow
 
-class Tables(val profile: H2Profile.type) {
+class Tables(val profile: JdbcProfile) {
+  import profile.api._
 
   class TodosTable(tag: Tag) extends Table[TodoRow](tag, "todos") {
     def id = column[Long]("id", O.PrimaryKey, O.AutoInc)
@@ -33,4 +33,6 @@ class Tables(val profile: H2Profile.type) {
   val subtasks = TableQuery[SubtasksTable]
 
   val schema = todos.schema ++ subtasks.schema
+
+  def createSchema: DBIO[Unit] = schema.create
 }

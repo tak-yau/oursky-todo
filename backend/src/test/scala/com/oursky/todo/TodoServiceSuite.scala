@@ -4,24 +4,23 @@ import munit.FunSuite
 import com.oursky.todo.models.{Todo, Subtask}
 import com.oursky.todo.db.{Tables, TodoRepository}
 import slick.jdbc.H2Profile
-import slick.jdbc.H2Profile.api._
+import slick.jdbc.JdbcBackend
 import scala.concurrent.ExecutionContext
 import scala.concurrent.Await
 import scala.concurrent.duration._
 
 class TodoServiceSuite extends FunSuite {
   implicit val ec: ExecutionContext = ExecutionContext.global
-  implicit val profile: H2Profile.type = H2Profile
 
   private var service: TodoService = _
-  private var db: H2Profile.backend.Database = _
+  private var db: JdbcBackend.Database = _
   private var testCounter = 0
 
   override def beforeEach(context: BeforeEach): Unit = {
     testCounter += 1
-    db = H2Profile.backend.Database.forURL(s"jdbc:h2:mem:test$testCounter;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
+    db = JdbcBackend.Database.forURL(s"jdbc:h2:mem:test$testCounter;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
     val tables = new Tables(H2Profile)
-    Await.result(db.run(tables.schema.create), 10.seconds)
+    Await.result(db.run(tables.createSchema), 10.seconds)
     val repo = new TodoRepository(db, tables)
     service = new TodoService(repo)
   }

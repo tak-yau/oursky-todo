@@ -84,6 +84,13 @@ collect_configuration() {
     USE_MICRO=${USE_MICRO:-"n"}  # Use e2-small by default (e2-micro too constrained)
     SINGLE_NODE=${SINGLE_NODE:-"y"}  # Single node for cost savings
     
+    # Supabase credentials (required for production)
+    SUPABASE_HOST=${SUPABASE_HOST:-"aws-1-us-east-2.pooler.supabase.com"}
+    SUPABASE_PORT=${SUPABASE_PORT:-"5432"}
+    SUPABASE_USER=${SUPABASE_USER:-"REPLACED_SUPABASE_USER"}
+    SUPABASE_PASSWORD=${SUPABASE_PASSWORD:-""}
+    SUPABASE_DB=${SUPABASE_DB:-"postgres"}
+    
     log_info "Configuration (set via environment variables):"
     log_info "  PROJECT_ID: $PROJECT_ID"
     log_info "  ZONE: $ZONE"
@@ -91,6 +98,11 @@ collect_configuration() {
     log_info "  USE_MICRO: $USE_MICRO"
     log_info "  SINGLE_NODE: $SINGLE_NODE"
     log_info "  GEMINI_API_KEY: ${GEMINI_API_KEY:0:15}..."
+    log_info "  SUPABASE_HOST: ${SUPABASE_HOST:-<not set>}"
+    log_info "  SUPABASE_PORT: $SUPABASE_PORT"
+    log_info "  SUPABASE_USER: $SUPABASE_USER"
+    log_info "  SUPABASE_PASSWORD: ${SUPABASE_PASSWORD:+<set>}"
+    log_info "  SUPABASE_DB: $SUPABASE_DB"
     echo ""
 }
 
@@ -370,6 +382,23 @@ deploy_to_kubernetes() {
     echo ""
     log_info "=== Deploying to Kubernetes ==="
     
+    # Validate Supabase credentials
+    log_info "Validating Supabase credentials..."
+    local missing_creds=()
+    if [ -z "$SUPABASE_HOST" ]; then
+        missing_creds+=("SUPABASE_HOST")
+    fi
+    if [ -z "$SUPABASE_PASSWORD" ]; then
+        missing_creds+=("SUPABASE_PASSWORD")
+    fi
+    if [ ${#missing_creds[@]} -gt 0 ]; then
+        log_error "Missing required Supabase credentials: ${missing_creds[*]}"
+        echo ""
+        echo "Set them via environment variables or re-run the script to provide them interactively."
+        exit 1
+    fi
+    log_success "Supabase credentials validated"
+    
     # Create namespace
     log_info "Creating namespace..."
     kubectl create namespace todo-app-prod --dry-run=client -o yaml | kubectl apply -f -
@@ -386,7 +415,7 @@ deploy_to_kubernetes() {
     
     # Create temporary file with substituted values
     local TEMP_DEPLOY_FILE=$(mktemp)
-    export GEMINI_API_KEY PROJECT_ID
+    export GEMINI_API_KEY PROJECT_ID SUPABASE_HOST SUPABASE_PORT SUPABASE_USER SUPABASE_PASSWORD SUPABASE_DB
     envsubst < gcp-deployment.yaml > "$TEMP_DEPLOY_FILE" || {
         log_error "Failed to substitute environment variables!"
         rm -f "$TEMP_DEPLOY_FILE"

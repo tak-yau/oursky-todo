@@ -126,6 +126,15 @@ coverage/
 # yarn.lock
 
 # ====================
+# Database Files
+# ====================
+
+# Local H2 database files (not needed in production)
+backend/data/
+*.mv.db
+*.trace.db
+
+# ====================
 # Misc
 # ====================
 
