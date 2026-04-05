@@ -10,7 +10,7 @@ metadata:
     environment: production
 
 ---
-# Secret will be created by deploy.sh with actual API key
+# Secret will be created by deploy.sh with actual API key and Supabase credentials
 apiVersion: v1
 kind: Secret
 metadata:
@@ -19,6 +19,42 @@ metadata:
 type: Opaque
 stringData:
   gemini-api-key: "${GEMINI_API_KEY}"
+  supabase-host: "${SUPABASE_HOST}"
+  supabase-port: "${SUPABASE_PORT}"
+  supabase-user: "${SUPABASE_USER}"
+  supabase-password: "${SUPABASE_PASSWORD}"
+  supabase-db: "${SUPABASE_DB}"
+  supabase-db-url: "jdbc:postgresql://${SUPABASE_HOST}:${SUPABASE_PORT}/${SUPABASE_DB}"
+
+---
+# ConfigMap containing database migration scripts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-migrations
+  namespace: todo-app-prod
+data:
+  V1__initial_schema.sql: |
+    -- V1__initial_schema.sql
+    -- Initial schema for the todo application
+    -- Idempotent: safe to run multiple times
+
+    CREATE TABLE IF NOT EXISTS todos (
+      id BIGSERIAL PRIMARY KEY,
+      title VARCHAR(500) NOT NULL,
+      completed BOOLEAN NOT NULL DEFAULT false,
+      created_at BIGINT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS subtasks (
+      id BIGSERIAL PRIMARY KEY,
+      todo_id BIGINT NOT NULL,
+      title VARCHAR(500) NOT NULL,
+      completed BOOLEAN NOT NULL DEFAULT false,
+      parent_id BIGINT,
+      depth INT NOT NULL DEFAULT 1,
+      CONSTRAINT fk_subtask_todo FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE
+    );
 
 ---
 # Backend Deployment - Scala/http4s API server
@@ -31,7 +67,7 @@ metadata:
     app: todo-backend
     version: "v1"
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: todo-backend
@@ -51,9 +87,61 @@ spec:
       terminationGracePeriodSeconds: 30
       imagePullSecrets:
       - name: gcr-pull-secret
+      initContainers:
+      - name: db-migrate
+        image: postgres:17-alpine
+        command:
+        - sh
+        - -c
+        - |
+          echo "Running database migrations..."
+          PGPASSWORD="$SUPABASE_PASSWORD" psql \
+            -h "$SUPABASE_HOST" \
+            -p "$SUPABASE_PORT" \
+            -U "$SUPABASE_USER" \
+            -d "$SUPABASE_DB" \
+            -f /migrations/V1__initial_schema.sql
+          echo "Database migration complete"
+        env:
+        - name: SUPABASE_HOST
+          valueFrom:
+            secretKeyRef:
+              name: todo-secret
+              key: supabase-host
+        - name: SUPABASE_PORT
+          valueFrom:
+            secretKeyRef:
+              name: todo-secret
+              key: supabase-port
+        - name: SUPABASE_USER
+          valueFrom:
+            secretKeyRef:
+              name: todo-secret
+              key: supabase-user
+        - name: SUPABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: todo-secret
+              key: supabase-password
+        - name: SUPABASE_DB
+          valueFrom:
+            secretKeyRef:
+              name: todo-secret
+              key: supabase-db
+        volumeMounts:
+        - name: migrations
+          mountPath: /migrations
+          readOnly: true
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
       containers:
       - name: todo-backend
-        image: gcr.io/oursky-todo-1775160139/todo-backend:v3
+        image: gcr.io/${PROJECT_ID}/todo-backend:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
@@ -64,6 +152,23 @@ spec:
             secretKeyRef:
               name: todo-secret
               key: gemini-api-key
+        - name: DB_TYPE
+          value: "postgres"
+        - name: DB_URL
+          valueFrom:
+            secretKeyRef:
+              name: todo-secret
+              key: supabase-db-url
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: todo-secret
+              key: supabase-user
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: todo-secret
+              key: supabase-password
         - name: JAVA_OPTS
           value: "-Xms64m -Xmx200m -XX:+UseG1GC -XX:MaxGCPauseMillis=50 -Djava.net.preferIPv4Stack=true"
         # Resource requests optimized for e2-small (~4GB total, ~1.8GB system overhead)
@@ -96,6 +201,10 @@ spec:
           capabilities:
             drop:
               - ALL
+      volumes:
+      - name: migrations
+        configMap:
+          name: db-migrations
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -139,7 +248,7 @@ metadata:
     app: todo-frontend
     version: "v1"
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: todo-frontend
@@ -159,7 +268,7 @@ spec:
       - name: gcr-pull-secret
       containers:
       - name: todo-frontend
-        image: gcr.io/oursky-todo-1775160139/todo-frontend:v3
+        image: gcr.io/${PROJECT_ID}/todo-frontend:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 80

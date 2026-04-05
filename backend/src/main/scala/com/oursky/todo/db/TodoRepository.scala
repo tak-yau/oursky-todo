@@ -2,11 +2,12 @@ package com.oursky.todo.db
 
 import cats.effect.IO
 import com.oursky.todo.models.{Todo, Subtask}
-import slick.jdbc.H2Profile
-import slick.jdbc.H2Profile.api._
+import slick.jdbc.JdbcProfile
+import slick.jdbc.JdbcBackend
 import scala.concurrent.ExecutionContext
 
-class TodoRepository(db: H2Profile.backend.Database, tables: Tables)(implicit ec: ExecutionContext) {
+class TodoRepository(db: JdbcBackend.Database, tables: Tables)(implicit ec: ExecutionContext) {
+  import tables.profile.api._
 
   def getAll: IO[List[Todo]] = runDBIO {
     for {
