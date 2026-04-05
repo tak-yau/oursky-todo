@@ -58,7 +58,7 @@ class GeminiService(client: Client[IO], apiKey: String) {
         )
       ),
       "generationConfig" -> Json.obj(
-        "temperature" -> Json.fromDoubleOrNull(0.7),
+        "temperature" -> Json.fromDoubleOrNull(0.9),
         "topK" -> Json.fromInt(40),
         "topP" -> Json.fromDoubleOrNull(0.9),
         "maxOutputTokens" -> Json.fromInt(512)
