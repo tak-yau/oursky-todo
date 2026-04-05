@@ -30,7 +30,8 @@ object TodoApp extends IOApp.Simple {
         throw new IllegalArgumentException(s"Unsupported database type: $other. Use 'h2' or 'postgres'.")
     }
 
-    val apiKey = sys.env.getOrElse("GEMINI_API_KEY", "")
+    val geminiApiKey = sys.env.getOrElse("GEMINI_API_KEY", "")
+    val qwenApiKey = sys.env.getOrElse("QWEN_API_KEY", "")
 
     implicit val ec: ExecutionContext = ExecutionContext.global
 
@@ -48,21 +49,31 @@ object TodoApp extends IOApp.Simple {
     val serverResource = for {
       client <- EmberClientBuilder.default[IO].build
       _ <- Resource.eval(IO.println(s"💾 Database: $dbLabel"))
-      geminiService <- if (apiKey.nonEmpty) {
-        Resource.pure(Some(new GeminiService(client, apiKey)))
+      qwenService <- if (qwenApiKey.nonEmpty) {
+        Resource.pure(Some(new QwenService(client, qwenApiKey)))
       } else {
         Resource.pure(None)
       }
-      todoRoutes = new TodoRoutes(todoService, geminiService)
+      geminiService <- if (geminiApiKey.nonEmpty) {
+        Resource.pure(Some(new GeminiService(client, geminiApiKey)))
+      } else {
+        Resource.pure(None)
+      }
+      todoRoutes = new TodoRoutes(todoService, qwenService, geminiService)
       server <- EmberServerBuilder.default[IO]
         .withHost(host"0.0.0.0")
         .withPort(port"8080")
         .withHttpApp(CORS.policy(todoRoutes.routes.orNotFound))
         .build
-    } yield (server, geminiService.isDefined)
+    } yield (server, qwenService.isDefined, geminiService.isDefined)
 
-    serverResource.use { case (server, aiEnabled) =>
-      val aiMsg = if (aiEnabled) "🤖 AI suggestions enabled" else "⚠️  GEMINI_API_KEY not set - AI suggestions disabled"
+    serverResource.use { case (server, qwenEnabled, geminiEnabled) =>
+      val aiMsg = (qwenEnabled, geminiEnabled) match {
+        case (true, true)   => "🤖 AI suggestions: Qwen (primary) + Gemini (fallback)"
+        case (true, false)  => "🤖 AI suggestions: Qwen only (no GEMINI_API_KEY)"
+        case (false, true)  => "🤖 AI suggestions: Gemini only (no QWEN_API_KEY)"
+        case (false, false) => "⚠️  No AI configured - set QWEN_API_KEY or GEMINI_API_KEY"
+      }
       IO.println(s"🚀 Oursky Todo Backend started at http://${server.address.getHostString}:${server.address.getPort}") *>
       IO.println(aiMsg) *>
       IO.never
