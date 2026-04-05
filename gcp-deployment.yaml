@@ -19,6 +19,7 @@ metadata:
 type: Opaque
 stringData:
   gemini-api-key: "${GEMINI_API_KEY}"
+  qwen-api-key: "${QWEN_API_KEY}"
   supabase-host: "${SUPABASE_HOST}"
   supabase-port: "${SUPABASE_PORT}"
   supabase-user: "${SUPABASE_USER}"
@@ -145,6 +146,11 @@ spec:
         - containerPort: 8080
           protocol: TCP
         env:
+        - name: QWEN_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: todo-secret
+              key: qwen-api-key
         - name: GEMINI_API_KEY
           valueFrom:
             secretKeyRef:

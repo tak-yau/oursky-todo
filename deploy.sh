@@ -81,6 +81,7 @@ collect_configuration() {
     ZONE=${GCP_ZONE:-"us-central1-a"}
     CLUSTER_NAME=${GKE_CLUSTER_NAME:-"todo-app-cluster"}
     GEMINI_API_KEY=${GEMINI_API_KEY:-"your-gemini-api-key-here"}  # Must be set for deployment
+    QWEN_API_KEY=${QWEN_API_KEY:-""}  # Optional - primary AI provider via OpenRouter (free tier)
     USE_MICRO=${USE_MICRO:-"n"}  # Use e2-small by default (e2-micro too constrained)
     SINGLE_NODE=${SINGLE_NODE:-"y"}  # Single node for cost savings
     
@@ -98,6 +99,7 @@ collect_configuration() {
     log_info "  USE_MICRO: $USE_MICRO"
     log_info "  SINGLE_NODE: $SINGLE_NODE"
     log_info "  GEMINI_API_KEY: ${GEMINI_API_KEY:0:15}..."
+    log_info "  QWEN_API_KEY: ${QWEN_API_KEY:+<set>}${QWEN_API_KEY:-<not set>}"
     log_info "  SUPABASE_HOST: ${SUPABASE_HOST:-<not set>}"
     log_info "  SUPABASE_PORT: $SUPABASE_PORT"
     log_info "  SUPABASE_USER: $SUPABASE_USER"
@@ -415,7 +417,7 @@ deploy_to_kubernetes() {
     
     # Create temporary file with substituted values
     local TEMP_DEPLOY_FILE=$(mktemp)
-    export GEMINI_API_KEY PROJECT_ID SUPABASE_HOST SUPABASE_PORT SUPABASE_USER SUPABASE_PASSWORD SUPABASE_DB
+    export GEMINI_API_KEY QWEN_API_KEY PROJECT_ID SUPABASE_HOST SUPABASE_PORT SUPABASE_USER SUPABASE_PASSWORD SUPABASE_DB
     envsubst < gcp-deployment.yaml > "$TEMP_DEPLOY_FILE" || {
         log_error "Failed to substitute environment variables!"
         rm -f "$TEMP_DEPLOY_FILE"

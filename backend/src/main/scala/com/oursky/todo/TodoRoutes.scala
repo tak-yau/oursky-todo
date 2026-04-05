@@ -7,24 +7,53 @@ import org.http4s.dsl.io.*
 import org.http4s.circe.CirceEntityCodec.*
 import io.circe.generic.auto._
 
-class TodoRoutes(todoService: TodoService, geminiService: Option[GeminiService]) {
+class TodoRoutes(todoService: TodoService, qwenService: Option[QwenService], geminiService: Option[GeminiService]) {
+
+  private val hardcodedFallback = (context: String) => List(
+    s"Break down '${context}' into smaller steps",
+    s"Research best practices for '${context}'",
+    s"Gather required resources and tools",
+    s"Create a timeline and schedule",
+    s"Execute and track progress"
+  )
+
+  private def getSuggestions(context: String, isSubtask: Boolean): IO[List[String]] = {
+    val qwen: IO[List[String]] = qwenService.fold[IO[List[String]]](
+      IO.raiseError(new Throwable("Qwen not configured"))
+    )(_.generateSubtaskSuggestions(context, isSubtask))
+
+    val gemini: IO[List[String]] = geminiService.fold[IO[List[String]]](
+      IO.raiseError(new Throwable("Gemini not configured"))
+    )(_.generateSubtaskSuggestions(context, isSubtask))
+
+    val fallback = IO.pure(hardcodedFallback(context))
+
+    qwen.handleErrorWith { qwenErr =>
+      IO.println(s"⚠️ Qwen failed, falling back to Gemini: ${qwenErr.getMessage}") *>
+      gemini.handleErrorWith { geminiErr =>
+        IO.println(s"⚠️ Gemini also failed, using hardcoded fallback: ${geminiErr.getMessage}") *>
+        fallback
+      }
+    }
+  }
+
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     // ============ HEALTH CHECK ============
     case GET -> Root / "health" =>
       Ok("""{"status": "ok"}""")
 
     // ============ AI ROUTES (must be before todos to avoid conflict) ============
-    case req @ POST -> Root / "api" / "ai" / "suggestions" if geminiService.isDefined =>
+    case req @ POST -> Root / "api" / "ai" / "suggestions" if qwenService.isDefined || geminiService.isDefined =>
       req.as[AISuggestionRequest].flatMap { body =>
         val isSubtask = body.subtaskId.isDefined
         val context = body.title
-        geminiService.get.generateSubtaskSuggestions(context, isSubtask).flatMap { suggestions =>
+        getSuggestions(context, isSubtask).flatMap { suggestions =>
           Ok(AISuggestionResponse(suggestions.take(5)))
         }
       }
 
     case POST -> Root / "api" / "ai" / "suggestions" =>
-      ServiceUnavailable("""{"error": "AI service not configured. Set GEMINI_API_KEY"}""")
+      ServiceUnavailable("""{"error": "AI service not configured. Set QWEN_API_KEY or GEMINI_API_KEY"}""")
 
     // ============ TODO ROUTES ============
     case GET -> Root / "api" / "todos" =>

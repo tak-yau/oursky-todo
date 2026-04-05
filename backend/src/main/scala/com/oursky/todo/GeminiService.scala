@@ -23,11 +23,12 @@ class GeminiService(client: Client[IO], apiKey: String) {
           |The user wants to break down this SUBTASK into smaller, more specific action steps:
           |"${context}"
           |
-          |IMPORTANT: 
-          |- Generate 5 specific action steps that are CHILDREN of this subtask
+          |IMPORTANT:
+          |- Generate exactly 5 specific action steps that are CHILDREN of this subtask
           |- Do NOT suggest sibling tasks or parent-level tasks
           |- Each step should be more granular and actionable than the subtask itself
-          |- Return ONLY a JSON array of strings, nothing else
+          |- Return ONLY a valid JSON array of exactly 5 strings, nothing else
+          |- Do not include any markdown, explanation, or text outside the JSON array
           |
           |Example: ["Step 1", "Step 2", "Step 3", "Step 4", "Step 5"]
           |""".stripMargin
@@ -38,10 +39,11 @@ class GeminiService(client: Client[IO], apiKey: String) {
           |"${context}"
           |
           |IMPORTANT:
-          |- Generate 5 major phases/steps to complete this task
+          |- Generate exactly 5 major phases/steps to complete this task
           |- Each subtask should be a significant milestone
           |- Order them logically from start to finish
-          |- Return ONLY a JSON array of strings, nothing else
+          |- Return ONLY a valid JSON array of exactly 5 strings, nothing else
+          |- Do not include any markdown, explanation, or text outside the JSON array
           |
           |Example: ["Step 1", "Step 2", "Step 3", "Step 4", "Step 5"]
           |""".stripMargin
@@ -76,15 +78,6 @@ class GeminiService(client: Client[IO], apiKey: String) {
       suggestions <- IO.fromEither(extractSuggestions(response))
       _ <- logger.info(s"📝 Generated ${suggestions.length} suggestions")
     } yield suggestions
-  }.handleErrorWith { error =>
-    logger.error(error)(s"❌ AI generation failed, using fallback") *>
-    IO.pure(List(
-      s"Break down '${context}' into smaller steps",
-      s"Research best practices for '${context}'",
-      s"Gather required resources and tools",
-      s"Create a timeline and schedule",
-      s"Execute and track progress"
-    ))
   }
 
   private def extractSuggestions(json: Json): Either[Throwable, List[String]] = {
