@@ -1,0 +1,18 @@
+[
+  {
+    "interfaces": ["java.lang.reflect.InvocationHandler"],
+    "methods": [{"name": "invoke", "parameterTypes": ["java.lang.Object", "java.lang.reflect.Method", "java.lang.Object[]"]}]
+  },
+  {
+    "interfaces": ["org.apache.pekko.actor.ActorRefProvider"],
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "interfaces": ["org.apache.pekko.stream.Materializer"],
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "interfaces": ["slick.jdbc.JdbcProfile"],
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  }
+]

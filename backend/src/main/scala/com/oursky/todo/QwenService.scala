@@ -1,22 +1,23 @@
 package com.oursky.todo
 
-import cats.effect.IO
+import org.apache.pekko.actor.ActorSystem
+import org.apache.pekko.http.scaladsl.Http
+import org.apache.pekko.http.scaladsl.model._
+import org.apache.pekko.http.scaladsl.unmarshalling.Unmarshal
+import org.apache.pekko.http.scaladsl.model.headers.{Authorization, OAuth2BearerToken, RawHeader}
 import io.circe.{Json, parser}
-import org.http4s.client.Client
-import org.http4s.{Method, Request, Uri, Headers, Header}
-import org.http4s.headers.Authorization
-import org.http4s.circe._
-import io.circe.generic.auto._
-import org.typelevel.log4cats.Logger
-import org.typelevel.log4cats.slf4j.Slf4jLogger
+import scala.concurrent.{Future, ExecutionContext}
+import org.apache.pekko.stream.Materializer
+import org.slf4j.LoggerFactory
 
-class QwenService(client: Client[IO], apiKey: String) {
+class QwenService(apiKey: String)(implicit system: ActorSystem, mat: Materializer) {
+  private val logger = LoggerFactory.getLogger(classOf[QwenService])
   private val model = "qwen/qwen3.6-plus:free"
   private val apiUrl = "https://openrouter.ai/api/v1/chat/completions"
 
-  implicit val logger: Logger[IO] = Slf4jLogger.getLogger[IO]
+  implicit val ec: ExecutionContext = system.dispatcher
 
-  def generateSubtaskSuggestions(context: String, isSubtask: Boolean = false): IO[List[String]] = {
+  def generateSubtaskSuggestions(context: String, isSubtask: Boolean = false): Future[List[String]] = {
     val prompt = if (isSubtask) {
       s"""You are a helpful task planning assistant for Oursky Todo app.
 
@@ -59,79 +60,129 @@ Example: ["Step 1", "Step 2", "Step 3", "Step 4", "Step 5"]"""
       "max_tokens" -> Json.fromInt(512)
     )
 
-    val request = Request[IO](Method.POST, Uri.unsafeFromString(apiUrl))
-      .withHeaders(
-        Header.Raw(org.typelevel.ci.CIString("Authorization"), s"Bearer $apiKey"),
-        Header.Raw(org.typelevel.ci.CIString("HTTP-Referer"), "https://github.com/tak-yau/oursky-todo"),
-        Header.Raw(org.typelevel.ci.CIString("X-Title"), "Oursky Todo App")
+    val request = HttpRequest(
+      method = HttpMethods.POST,
+      uri = apiUrl,
+      entity = HttpEntity(ContentTypes.`application/json`, requestBody.noSpaces),
+      headers = Seq(
+        Authorization(OAuth2BearerToken(apiKey)),
+        RawHeader("HTTP-Referer", "https://github.com/tak-yau/oursky-todo"),
+        RawHeader("X-Title", "Oursky Todo App")
       )
-      .withEntity(requestBody)
+    )
 
     for {
-      _ <- logger.info(s"🤖 Requesting AI suggestions via Qwen for: $context (isSubtask: $isSubtask)")
-      _ <- logger.info(s"📦 Using model: $model")
-
-      response <- client.expect[Json](request)
-
-      _ <- logger.info(s"✅ Got response from Qwen/OpenRouter API")
-      suggestions <- IO.fromEither(extractSuggestions(response))
-      _ <- logger.info(s"📝 Qwen generated ${suggestions.length} suggestions")
+      body <- fetchResponseBody(request)
+      json <- Future.fromTry(parser.parse(body).toTry)
+      suggestions <- Future.fromTry(extractSuggestions(json, body))
     } yield suggestions
   }
 
-  private def extractSuggestions(json: Json): Either[Throwable, List[String]] = {
+  protected def fetchResponseBody(request: HttpRequest): Future[String] = {
+    for {
+      response <- Http().singleRequest(request)
+      body <- Unmarshal(response).to[String]
+    } yield body
+  }
+
+  private def extractSuggestions(json: Json, rawBody: String): scala.util.Try[List[String]] = {
     try {
       val text = extractTextFromResponse(json)
 
       text match {
         case Some(content) =>
-          val jsonStart = content.indexOf("[")
-          val jsonEnd = content.lastIndexOf("]") + 1
-
-          if (jsonStart >= 0 && jsonEnd > jsonStart) {
-            val jsonString = content.substring(jsonStart, jsonEnd)
-            parser.parse(jsonString).flatMap(_.as[List[String]]) match {
-              case Right(list) if list.nonEmpty => Right(list)
-              case Right(_) => Left(new Throwable("Empty suggestions list"))
-              case Left(err) => Left(new Throwable(s"JSON parse error: ${err.getMessage}"))
-            }
-          } else {
-            val lines = content.split("\n").map(_.trim).filter(line =>
-              line.startsWith("\"") || line.startsWith("-") || line.startsWith("*") || line.matches("\\d+\\.")
-            ).take(5).toList
-
-            if (lines.nonEmpty) {
-              Right(lines.map(cleanLine))
-            } else {
-              Left(new Throwable("No JSON array or list found in response"))
-            }
-          }
+          parseContent(content)
 
         case None =>
-          Left(new Throwable("No text content in response"))
+          logger.warn("Qwen: No text from standard path, trying fallbacks. Body: ${rawBody.take(200)}")
+          tryFallbackExtraction(json, rawBody)
       }
     } catch {
       case e: Exception =>
-        Left(new Throwable(s"Extraction error: ${e.getMessage}"))
+        logger.error(s"Qwen extraction error: ${e.getMessage}")
+        scala.util.Failure(new Throwable(s"Extraction error: ${e.getMessage}"))
+    }
+  }
+
+  private def parseContent(content: String): scala.util.Try[List[String]] = {
+    val cleaned = stripMarkdownFences(content)
+    val jsonStart = cleaned.indexOf("[")
+    val jsonEnd = cleaned.lastIndexOf("]") + 1
+
+    if (jsonStart >= 0 && jsonEnd > jsonStart) {
+      val jsonString = cleaned.substring(jsonStart, jsonEnd)
+      parser.parse(jsonString).flatMap(_.as[List[String]]) match {
+        case Right(list) if list.nonEmpty => scala.util.Success(list)
+        case Right(_) => scala.util.Failure(new Throwable("Empty suggestions list"))
+        case Left(_) => parseFallbackLines(cleaned)
+      }
+    } else {
+      parseFallbackLines(cleaned)
     }
   }
 
   private def extractTextFromResponse(json: Json): Option[String] = {
-    val text1 = for {
-      choices <- json.hcursor.downField("choices").downArray.downField("message").downField("content").as[Option[String]].toOption
-      t <- choices
-    } yield t
+    json.hcursor
+      .downField("choices")
+      .downArray
+      .downField("message")
+      .downField("content")
+      .as[Option[String]]
+      .toOption
+      .flatten
+  }
 
-    text1.orElse {
-      json.hcursor
-        .downField("choices")
-        .downArray
-        .downField("message")
-        .downField("content")
-        .as[Option[String]]
-        .toOption
-        .flatten
+  private def tryFallbackExtraction(json: Json, rawBody: String): scala.util.Try[List[String]] = {
+    val paths = Seq(
+      () => json.hcursor.downField("output").as[Option[String]].toOption.flatten,
+      () => json.hcursor.downField("text").as[Option[String]].toOption.flatten,
+      () => json.hcursor.downField("response").as[Option[String]].toOption.flatten,
+      () => json.hcursor.downField("result").as[Option[String]].toOption.flatten,
+      () => json.hcursor.downField("message").downField("content").as[Option[String]].toOption.flatten
+    )
+
+    val pathResult = paths.flatMap(extract => extract()).find(_.nonEmpty).flatMap(text => parseContent(text).toOption)
+    pathResult match {
+      case Some(result) => scala.util.Success(result)
+      case None =>
+        val bracketStart = rawBody.indexOf("[")
+        val bracketEnd = rawBody.lastIndexOf("]") + 1
+        if (bracketStart >= 0 && bracketEnd > bracketStart && bracketEnd <= rawBody.length) {
+          val candidate = rawBody.substring(bracketStart, bracketEnd)
+          parser.parse(candidate).flatMap(_.as[List[String]]) match {
+            case Right(list) if list.nonEmpty => scala.util.Success(list)
+            case _ => fallbackFailure(rawBody)
+          }
+        } else {
+          fallbackFailure(rawBody)
+        }
     }
+  }
+
+  private def fallbackFailure(rawBody: String): scala.util.Try[List[String]] = {
+    logger.error(s"Qwen: All extraction paths failed. Raw body: $rawBody")
+    scala.util.Failure(new Throwable("No text content in response"))
+  }
+
+  private def parseFallbackLines(content: String): scala.util.Try[List[String]] = {
+    val lines = content.split("\n").map(_.trim).filter { line =>
+      val cleaned = line.stripPrefix("```json").stripPrefix("```").trim
+      cleaned.startsWith("\"") || cleaned.startsWith("-") || cleaned.startsWith("*") || cleaned.matches("\\d+\\..*")
+    }.take(5).toList
+
+    if (lines.nonEmpty) {
+      scala.util.Success(lines.map(cleanLine))
+    } else {
+      scala.util.Failure(new Throwable("No JSON array or list found in response"))
+    }
+  }
+
+  private def stripMarkdownFences(content: String): String = {
+    content
+      .replaceFirst("```json\\n?", "")
+      .replaceFirst("```\\n?", "")
+      .replaceAll("\\n?```\\s*$", "")
+      .trim
   }
 
   private def cleanLine(line: String): String = {

@@ -1,0 +1,66 @@
+# Multi-stage Dockerfile for GraalVM Native Image - GCP Optimized
+# Stage 1: Build native binary with GraalVM
+FROM ghcr.io/graalvm/graalvm-community:17 AS builder
+
+WORKDIR /app
+
+# Install sbt
+RUN curl -fL https://github.com/sbt/sbt/releases/download/v1.9.7/sbt-1.9.7.tgz | tar xz -C /usr/local/ && \
+    ln -s /usr/local/sbt/bin/sbt /usr/local/bin/sbt
+
+# Copy build definition
+COPY backend/build.sbt ./build.sbt
+COPY backend/project/plugins.sbt ./project/plugins.sbt
+COPY backend/project/build.properties ./project/build.properties
+
+# Copy native image configs
+COPY backend/native/ ./native/
+
+# Copy source code
+COPY backend/src/ ./src/
+
+WORKDIR /app
+
+# Build fat JAR
+RUN sbt assembly
+
+# Build native image from fat JAR
+RUN native-image \
+  --no-fallback \
+  -H:ClassInitialization=org.apache.pekko:run_time \
+  -H:IncludeResourceBundles=com.sun.org.apache.xerces.internal.impl.msg.XMLMessages \
+  -H:ReflectionConfigurationFiles=/app/native/native-image-configs/reflect-config.json \
+  -H:ResourceConfigurationFiles=/app/native/native-image-configs/resource-config.json \
+  -H:JNIConfigurationFiles=/app/native/native-image-configs/jni-config.json \
+  -H:DynamicProxyConfigurationFiles=/app/native/native-image-configs/proxy-config.json \
+  -H:SerializationConfigurationFiles=/app/native/native-image-configs/serialization-config.json \
+  -J-Xmx4g \
+  -H:Path=/app/native/target \
+  -H:Name=todo-backend-native \
+  -cp /app/target/scala-3.3.0/oursky-todo-backend-assembly-*.jar \
+  com.oursky.todo.TodoApp
+
+# Stage 2: Minimal runtime for GCP
+# Use debian:bookworm-slim to get libz, then copy only needed libs to distroless
+FROM debian:bookworm-slim AS libz
+RUN apt-get update && apt-get install -y --no-install-recommends zlib1g && rm -rf /var/lib/apt/lists/*
+
+FROM gcr.io/distroless/cc-debian12
+
+# Copy native binary from builder
+COPY --from=builder /app/native/target/todo-backend-native /app/todo-backend
+
+# Copy libz from debian
+COPY --from=libz /usr/lib/x86_64-linux-gnu/libz.so.1 /usr/lib/x86_64-linux-gnu/libz.so.1
+COPY --from=libz /usr/lib/x86_64-linux-gnu/libz.so.1.* /usr/lib/x86_64-linux-gnu/
+
+# Non-root user (distroless uses nonroot by default)
+USER nonroot:nonroot
+
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD ["/app/todo-backend", "--health"]
+
+ENTRYPOINT ["/app/todo-backend"]

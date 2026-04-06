@@ -23,10 +23,9 @@ case class CreateTodoRequest(title: String)
 case class UpdateTodoRequest(title: Option[String], completed: Option[Boolean])
 case class AddSubtaskRequest(subtaskTitle: String, parentId: Option[Long] = None)
 case class AISuggestionRequest(title: String, taskId: Option[Long] = None, subtaskId: Option[Long] = None)
-case class AISuggestionResponse(suggestions: List[String])
+case class AISuggestionResponseBody(suggestions: List[String])
 case class NotificationRequest(message: String, `type`: String = "success")
 
-// Semi-auto JSON derivation (no inline limit issues)
 object Subtask {
   implicit val encoder: Encoder[Subtask] = deriveEncoder[Subtask]
   implicit val decoder: Decoder[Subtask] = deriveDecoder[Subtask]
@@ -57,9 +56,9 @@ object AISuggestionRequest {
   implicit val decoder: Decoder[AISuggestionRequest] = deriveDecoder[AISuggestionRequest]
 }
 
-object AISuggestionResponse {
-  implicit val encoder: Encoder[AISuggestionResponse] = deriveEncoder[AISuggestionResponse]
-  implicit val decoder: Decoder[AISuggestionResponse] = deriveDecoder[AISuggestionResponse]
+object AISuggestionResponseBody {
+  implicit val encoder: Encoder[AISuggestionResponseBody] = deriveEncoder[AISuggestionResponseBody]
+  implicit val decoder: Decoder[AISuggestionResponseBody] = deriveDecoder[AISuggestionResponseBody]
 }
 
 object NotificationRequest {

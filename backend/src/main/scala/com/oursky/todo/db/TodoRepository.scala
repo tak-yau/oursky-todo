@@ -1,22 +1,21 @@
 package com.oursky.todo.db
 
-import cats.effect.IO
 import com.oursky.todo.models.{Todo, Subtask}
 import slick.jdbc.JdbcProfile
 import slick.jdbc.JdbcBackend
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{Future, ExecutionContext}
 
 class TodoRepository(db: JdbcBackend.Database, tables: Tables)(implicit ec: ExecutionContext) {
   import tables.profile.api._
 
-  def getAll: IO[List[Todo]] = runDBIO {
+  def getAll: Future[List[Todo]] = db.run {
     for {
       todoRows <- tables.todos.result
       subtaskRows <- tables.subtasks.result
     } yield buildTodos(todoRows, subtaskRows)
   }
 
-  def getById(id: Long): IO[Option[Todo]] = runDBIO {
+  def getById(id: Long): Future[Option[Todo]] = db.run {
     for {
       todoOpt <- tables.todos.filter(_.id === id).result.headOption
       result <- todoOpt match {
@@ -29,7 +28,7 @@ class TodoRepository(db: JdbcBackend.Database, tables: Tables)(implicit ec: Exec
     } yield result
   }
 
-  def create(title: String): IO[Todo] = runDBIO {
+  def create(title: String): Future[Todo] = db.run {
     val now = System.currentTimeMillis()
     for {
       todoRow <- (tables.todos returning tables.todos.map(_.id) into ((row, id) => row.copy(id = id))) += TodoRow(0L, title, completed = false, createdAt = now)
@@ -37,7 +36,7 @@ class TodoRepository(db: JdbcBackend.Database, tables: Tables)(implicit ec: Exec
     } yield buildTodo(todoRow, subtaskRows)
   }
 
-  def update(id: Long, title: Option[String], completed: Option[Boolean]): IO[Option[Todo]] = runDBIO {
+  def update(id: Long, title: Option[String], completed: Option[Boolean]): Future[Option[Todo]] = db.run {
     for {
       existingOpt <- tables.todos.filter(_.id === id).result.headOption
       result <- existingOpt match {
@@ -55,11 +54,11 @@ class TodoRepository(db: JdbcBackend.Database, tables: Tables)(implicit ec: Exec
     } yield result
   }
 
-  def delete(id: Long): IO[Boolean] = runDBIO {
+  def delete(id: Long): Future[Boolean] = db.run {
     tables.todos.filter(_.id === id).delete.map(_ > 0)
   }
 
-  def addSubtask(todoId: Long, subtaskTitle: String, parentId: Option[Long]): IO[Option[Todo]] = runDBIO {
+  def addSubtask(todoId: Long, subtaskTitle: String, parentId: Option[Long]): Future[Option[Todo]] = db.run {
     for {
       todoOpt <- tables.todos.filter(_.id === todoId).result.headOption
       result <- todoOpt match {
@@ -83,7 +82,7 @@ class TodoRepository(db: JdbcBackend.Database, tables: Tables)(implicit ec: Exec
     } yield result
   }
 
-  def updateSubtask(todoId: Long, subtaskId: Long, completed: Option[Boolean]): IO[Option[Todo]] = runDBIO {
+  def updateSubtask(todoId: Long, subtaskId: Long, completed: Option[Boolean]): Future[Option[Todo]] = db.run {
     for {
       todoOpt <- tables.todos.filter(_.id === todoId).result.headOption
       result <- todoOpt match {
@@ -105,7 +104,7 @@ class TodoRepository(db: JdbcBackend.Database, tables: Tables)(implicit ec: Exec
     } yield result
   }
 
-  def deleteSubtask(todoId: Long, subtaskId: Long): IO[Option[Todo]] = runDBIO {
+  def deleteSubtask(todoId: Long, subtaskId: Long): Future[Option[Todo]] = db.run {
     for {
       todoOpt <- tables.todos.filter(_.id === todoId).result.headOption
       result <- todoOpt match {
@@ -118,9 +117,6 @@ class TodoRepository(db: JdbcBackend.Database, tables: Tables)(implicit ec: Exec
       }
     } yield result
   }
-
-  private def runDBIO[T](action: DBIOAction[T, NoStream, _]): IO[T] =
-    IO.fromFuture(IO(db.run(action)))
 
   private def buildTodo(row: TodoRow, subtaskRows: Seq[SubtaskRow]): Todo =
     Todo(

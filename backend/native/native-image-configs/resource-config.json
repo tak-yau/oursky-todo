@@ -1,0 +1,67 @@
+{
+  "resources": {
+    "includes": [
+      {
+        "pattern": "reference\\.conf$"
+      },
+      {
+        "pattern": "version\\.conf$"
+      },
+      {
+        "pattern": "logback.*\\.xml$"
+      },
+      {
+        "pattern": "logback.*\\.properties$"
+      },
+      {
+        "pattern": ".*\\.properties$"
+      },
+      {
+        "pattern": ".*\\.conf$"
+      },
+      {
+        "pattern": ".*\\.xml$"
+      },
+      {
+        "pattern": "org/postgresql/.*"
+      },
+      {
+        "pattern": "com/typesafe/slick/.*"
+      },
+      {
+        "pattern": "META-INF/services/.*"
+      },
+      {
+        "pattern": "META-INF/.*\\.properties$"
+      },
+      {
+        "pattern": "io/netty/.*"
+      },
+      {
+        "pattern": "org/apache/pekko/.*"
+      },
+      {
+        "pattern": "slick/.*"
+      },
+      {
+        "pattern": "com/zaxxer/hikari/.*"
+      },
+      {
+        "pattern": "ch/qos/logback/.*"
+      },
+      {
+        "pattern": "com/sun/org/apache/xerces/.*"
+      }
+    ]
+  },
+  "bundles": [
+    {
+      "name": "com.sun.org.apache.xerces.internal.impl.msg.XMLMessages",
+      "locales": [""]
+    },
+    {
+      "name": "org.postgresql.util.GT",
+      "locales": [""]
+    }
+  ]
+}

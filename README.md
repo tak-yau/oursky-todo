@@ -8,7 +8,7 @@
 
 | Feature | Why It Matters |
 |---------|----------------|
-| **AI Subtask Suggestions** | Type "Plan vacation" → get suggested subtasks via Qwen 3.6 Plus (with Gemini fallback) |
+| **AI Subtask Suggestions** | Type "Plan vacation" → get suggested subtasks like "Book flights", "Research hotels" |
 | **Persistent Storage** | Data survives server restarts with Slick ORM and PostgreSQL/H2 |
 | **One-Command Deploy** | Production-ready on GCP with Supabase in minutes |
 | **Cost-Optimized** | Runs for ~$5/month with e2-micro instances + Supabase free tier |
@@ -39,6 +39,34 @@ export DB_USER="user"
 export DB_PASSWORD="password"
 cd backend && sbt run
 ```
+
+### Run Compiled Binary
+
+```bash
+cd backend
+
+# Option 1: Using the startup script (recommended)
+./start.sh
+
+# Option 2: Build and run universal stage binary (recommended over assembly JAR)
+sbt "Universal / stage"
+target/universal/stage/bin/oursky-todo-backend
+
+# Option 3: GraalVM Native (instant startup, requires GraalVM)
+./build-native.sh
+./todo-backend-native
+```
+
+**Environment Variables:**
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | Server port | `8080` |
+| `DB_TYPE` | Database type (`h2` or `postgres`) | `h2` |
+| `DB_URL` | JDBC connection URL | `jdbc:h2:./data/todo-db` |
+| `DB_USER` | Database username | `""` |
+| `DB_PASSWORD` | Database password | `""` |
+| `QWEN_API_KEY` | Qwen AI API key | (not set) |
+| `GEMINI_API_KEY` | Gemini AI API key | (not set) |
 
 ---
 
@@ -73,9 +101,49 @@ See [DEPLOYMENT-README.md](DEPLOYMENT-README.md) for detailed deployment guide.
 
 ---
 
+## ⚡ GraalVM Native Image (Optional)
+
+For **instant startup (<100ms)** and **low RAM usage**, build a native binary:
+
+### Prerequisites
+
+```bash
+# Install GraalVM (via SDKMAN recommended)
+curl -s "https://get.sdkman.io" | bash
+sdk install graalvm
+
+# Install native-image component
+gu install native-image
+```
+
+### Build
+```bash
+cd backend
+./build-native.sh
+```
+
+> **Note**: The `sbt assembly` JAR has known configuration merge issues with Pekko and should be avoided. Use `sbt "Universal / stage"` instead.
+
+This creates `todo-backend-native` - a native executable with:
+- ⚡ Startup time: <100ms
+- 💾 RAM usage: ~50MB (vs 200MB+ JVM)
+
+### Run
+
+```bash
+# Set environment variables
+export QWEN_API_KEY="your-key"
+export GEMINI_API_KEY="your-key"
+
+# Run native binary
+./todo-backend-native
+```
+
+---
+
 ## 🛠️ Tech Stack
 
-**Backend:** Scala 3, http4s, Cats Effect, Slick 3.5 | **Frontend:** Vue 3, Vite | **AI:** Qwen 3.6 Plus & Google Gemini | **Database:** PostgreSQL (Supabase) / H2 (dev) | **Infrastructure:** GCP GKE, Kubernetes
+**Backend:** Scala 3, Apache Pekko (Actor), Slick 3.5 | **Frontend:** Vue 3, Vite | **AI:** Qwen 3.6 Plus & Google Gemini | **Database:** PostgreSQL (Supabase) / H2 (dev) | **Infrastructure:** GCP GKE, Kubernetes
 
 ---
 

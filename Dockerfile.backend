@@ -1,22 +1,36 @@
-# Use minimal Alpine-based JDK image for smaller size and lower cost
-FROM eclipse-temurin:17-jre-alpine AS builder
+# Stage 1: Build custom minimal JRE with jlink
+FROM eclipse-temurin:17-jdk-alpine AS jre-builder
+
+RUN jlink \
+  --add-modules java.base,java.logging,java.sql,java.naming,java.management,java.security.jgss,java.security.sasl,java.net.http,jdk.unsupported,jdk.crypto.ec \
+  --output /custom-jre \
+  --strip-debug \
+  --no-man-pages \
+  --no-header-files \
+  --compress=2
+
+# Stage 2: Copy fat JAR
+FROM eclipse-temurin:17-jdk-alpine AS jar-stage
 
 WORKDIR /app
-
-# Copy only the assembly fat JAR (contains all dependencies) - ~31MB
-# The thin JAR is only ~168KB, so we filter by size pattern
 COPY backend/target/scala-3.3.0/oursky-todo-backend-assembly*.jar app.jar
 
-# Use multi-stage build with even smaller runtime image
-FROM eclipse-temurin:17-jre-alpine
+# Stage 3: Production runtime
+FROM alpine:3.19
 
-# Add Java security settings for minimal footprint
-ENV JAVA_OPTS="-Xms64m -Xmx256m -XX:+UseG1GC -XX:MaxGCPauseMillis=50"
+# Install wget for health checks
+RUN apk add --no-cache wget
+
+# Copy custom JRE
+COPY --from=jre-builder /custom-jre /opt/jre
+
+# Copy application JAR
+COPY --from=jar-stage /app/app.jar /app/app.jar
+
+ENV JAVA_HOME=/opt/jre
+ENV PATH="/opt/jre/bin:$PATH"
 
 WORKDIR /app
-
-# Copy JAR from builder stage
-COPY --from=builder /app/app.jar app.jar
 
 # Non-root user for security
 RUN addgroup -g 1001 appgroup && adduser -u 1001 -G appgroup -D appuser
@@ -28,4 +42,12 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+ENTRYPOINT ["java", \
+  "-XX:+UseContainerSupport", \
+  "-XX:MaxRAMPercentage=75.0", \
+  "-XX:InitialRAMPercentage=50.0", \
+  "-Xss256k", \
+  "-XX:+UseG1GC", \
+  "-Dpekko.log-dead-letters=off", \
+  "-Djava.security.egd=file:/dev/./urandom", \
+  "-jar", "app.jar"]

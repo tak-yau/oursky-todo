@@ -1,0 +1,71 @@
+[
+  {
+    "name": "java.lang.String"
+  },
+  {
+    "name": "java.lang.Long"
+  },
+  {
+    "name": "java.lang.Boolean"
+  },
+  {
+    "name": "java.lang.Integer"
+  },
+  {
+    "name": "java.util.ArrayList"
+  },
+  {
+    "name": "java.util.LinkedHashMap"
+  },
+  {
+    "name": "java.util.concurrent.ConcurrentHashMap"
+  },
+  {
+    "name": "java.util.Properties"
+  },
+  {
+    "name": "scala.Tuple2"
+  },
+  {
+    "name": "scala.Option"
+  },
+  {
+    "name": "scala.Some"
+  },
+  {
+    "name": "scala.None$"
+  },
+  {
+    "name": "scala.collection.immutable.List"
+  },
+  {
+    "name": "com.oursky.todo.models.Todo"
+  },
+  {
+    "name": "com.oursky.todo.models.Subtask"
+  },
+  {
+    "name": "com.oursky.todo.models.CreateTodoRequest"
+  },
+  {
+    "name": "com.oursky.todo.models.UpdateTodoRequest"
+  },
+  {
+    "name": "com.oursky.todo.models.AddSubtaskRequest"
+  },
+  {
+    "name": "com.oursky.todo.models.AISuggestionResponseBody"
+  },
+  {
+    "name": "com.oursky.todo.models.AISuggestionRequest"
+  },
+  {
+    "name": "com.oursky.todo.models.NotificationRequest"
+  },
+  {
+    "name": "com.oursky.todo.db.TodoRow"
+  },
+  {
+    "name": "com.oursky.todo.db.SubtaskRow"
+  }
+]

@@ -34,5 +34,5 @@ class Tables(val profile: JdbcProfile) {
 
   val schema = todos.schema ++ subtasks.schema
 
-  def createSchema: DBIO[Unit] = schema.create
+  def createSchema: DBIO[Unit] = schema.createIfNotExists
 }
