@@ -99,7 +99,7 @@ See [DEPLOYMENT-README.md](DEPLOYMENT-README.md) for detailed deployment guide.
 ### Subtasks
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/todos/:id/subtasks` | Add subtask (supports nesting up to 5 levels) |
+| `POST` | `/api/todos/:id/subtasks` | Add subtask (supports nesting up to 4 levels) |
 | `PUT` | `/api/todos/:id/subtasks/:sid` | Update subtask completion |
 | `DELETE` | `/api/todos/:id/subtasks/:sid` | Delete subtask |
 

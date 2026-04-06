@@ -74,26 +74,26 @@ class TodoServiceSuite extends FunSuite {
     assertEquals(run(service.getAll).length, 0)
   }
 
-  test("subtask depth should not exceed 5 levels") {
-    val todo = run(service.create("Root"))
-
-    def findSubtaskByDepth(subtasks: List[Subtask], targetDepth: Int): Option[Subtask] = {
-      subtasks.find(_.depth == targetDepth) match {
-        case Some(st) => Some(st)
-        case None => subtasks.flatMap(st => findSubtaskByDepth(st.subtasks, targetDepth)).headOption
-      }
-    }
-
-    var parentId: Option[Long] = None
-    for (i <- 1 to 5) {
-      val updated = run(service.addSubtask(todo.id, s"Level $i", parentId))
-      parentId = updated.flatMap(t => findSubtaskByDepth(t.subtasks, i).map(_.id))
-    }
-
-    intercept[IllegalArgumentException] {
-      run(service.addSubtask(todo.id, "Level 6", parentId))
-    }
-  }
+test("subtask depth should not exceed 4 levels") {
+     val todo = run(service.create("Root"))
+ 
+     def findSubtaskByDepth(subtasks: List[Subtask], targetDepth: Int): Option[Subtask] = {
+       subtasks.find(_.depth == targetDepth) match {
+         case Some(st) => Some(st)
+         case None => subtasks.flatMap(st => findSubtaskByDepth(st.subtasks, targetDepth)).headOption
+       }
+     }
+ 
+     var parentId: Option[Long] = None
+     for (i <- 1 to 4) {
+       val updated = run(service.addSubtask(todo.id, s"Subtask level $i", parentId))
+       parentId = updated.flatMap(t => findSubtaskByDepth(t.subtasks, i).map(_.id))
+     }
+ 
+     intercept[IllegalArgumentException] {
+       run(service.addSubtask(todo.id, "Subtask level 5", parentId))
+     }
+   }
 
   test("data persists across service calls") {
     run(service.create("Persist Test"))

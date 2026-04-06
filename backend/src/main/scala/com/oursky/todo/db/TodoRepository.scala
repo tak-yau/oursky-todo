@@ -72,8 +72,8 @@ class TodoRepository(db: JdbcBackend.Database, tables: Tables)(implicit ec: Exec
               case None => DBIO.successful(0)
             }
             newDepth = parentDepth + 1
-            _ <- if (newDepth > 5)
-              DBIO.failed(new IllegalArgumentException("Maximum subtask depth (5 levels) exceeded"))
+            _ <- if (newDepth > 4)
+              DBIO.failed(new IllegalArgumentException("Maximum subtask depth (4 levels) exceeded"))
             else
               DBIO.successful(())
             _ <- tables.subtasks += SubtaskRow(0L, todoId, subtaskTitle, completed = false, parentId, newDepth)
