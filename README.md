@@ -10,10 +10,9 @@
 |---------|----------------|
 | **AI Subtask Suggestions** | Type "Plan vacation" → get suggested subtasks like "Book flights", "Research hotels" |
 | **Persistent Storage** | Data survives server restarts with Slick ORM and PostgreSQL/H2 |
-| **One-Command Deploy** | Production-ready on GCP with Supabase in minutes |
+| **Optimized Docker Image** | jlink-custom JRE reduces image size by 49% (352MB → 179MB) |
 | **Cost-Optimized** | Runs for ~$5/month with e2-micro instances + Supabase free tier |
-| **Zero-Downtime Updates** | Rolling restarts keep your app always available |
-| **High Availability** | 2 replicas for both frontend and backend in production |
+| **High Availability** | 2 replicas with rolling updates, HPA, and pod anti-affinity |
 
 ---
 
@@ -40,21 +39,14 @@ export DB_PASSWORD="password"
 cd backend && sbt run
 ```
 
-### Run Compiled Binary
+### Run from Docker Image
 
 ```bash
-cd backend
-
-# Option 1: Using the startup script (recommended)
-./start.sh
-
-# Option 2: Build and run universal stage binary (recommended over assembly JAR)
-sbt "Universal / stage"
-target/universal/stage/bin/oursky-todo-backend
-
-# Option 3: GraalVM Native (instant startup, requires GraalVM)
-./build-native.sh
-./todo-backend-native
+docker build -f Dockerfile.backend -t todo-backend:latest .
+docker run -p 8080:8080 \
+  -e DB_TYPE=h2 \
+  -e QWEN_API_KEY="your-key" \
+  todo-backend:latest
 ```
 
 **Environment Variables:**
@@ -72,7 +64,7 @@ target/universal/stage/bin/oursky-todo-backend
 
 ## 🚀 Deployment
 
-### Deploy to Production
+### Deploy to GKE
 
 ```bash
 # Set required environment variables
@@ -101,49 +93,29 @@ See [DEPLOYMENT-README.md](DEPLOYMENT-README.md) for detailed deployment guide.
 
 ---
 
-## ⚡ GraalVM Native Image (Optional)
+## 🐳 Docker Image
 
-For **instant startup (<100ms)** and **low RAM usage**, build a native binary:
+The production Docker image uses a multi-stage build with `jlink` to create a custom minimal JRE:
 
-### Prerequisites
-
-```bash
-# Install GraalVM (via SDKMAN recommended)
-curl -s "https://get.sdkman.io" | bash
-sdk install graalvm
-
-# Install native-image component
-gu install native-image
-```
-
-### Build
-```bash
-cd backend
-./build-native.sh
-```
-
-> **Note**: The `sbt assembly` JAR has known configuration merge issues with Pekko and should be avoided. Use `sbt "Universal / stage"` instead.
-
-This creates `todo-backend-native` - a native executable with:
-- ⚡ Startup time: <100ms
-- 💾 RAM usage: ~50MB (vs 200MB+ JVM)
-
-### Run
+| Metric | Value |
+|---|---|
+| **Base** | Alpine 3.19 + custom JRE |
+| **Size** | ~179MB (down from 352MB) |
+| **JVM Flags** | Container-aware, G1GC, 256k thread stacks |
 
 ```bash
-# Set environment variables
-export QWEN_API_KEY="your-key"
-export GEMINI_API_KEY="your-key"
-
-# Run native binary
-./todo-backend-native
+docker build -f Dockerfile.backend -t todo-backend:latest .
 ```
+
+### Native Image (Experimental)
+
+GraalVM native image compilation is currently blocked by a Pekko/GraalVM incompatibility with `sun.misc.Unsafe`. The `Dockerfile.native` is included for future use once Pekko releases a fix.
 
 ---
 
 ## 🛠️ Tech Stack
 
-**Backend:** Scala 3, Apache Pekko (Actor), Slick 3.5 | **Frontend:** Vue 3, Vite | **AI:** Qwen 3.6 Plus & Google Gemini | **Database:** PostgreSQL (Supabase) / H2 (dev) | **Infrastructure:** GCP GKE, Kubernetes
+**Backend:** Scala 3, Apache Pekko HTTP (Actor-based), Slick 3.5 | **Frontend:** Vue 3, Vite | **AI:** Qwen 3.6 Plus & Google Gemini | **Database:** PostgreSQL (Supabase) / H2 (dev) | **Infrastructure:** GCP GKE, Kubernetes
 
 ---
 
@@ -176,6 +148,11 @@ export GEMINI_API_KEY="your-key"
 |--------|----------|-------------|
 | `POST` | `/api/ai/suggestions` | Get AI subtask suggestions |
 
+### Health
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Health check endpoint |
+
 ---
 
 ## Database
@@ -184,7 +161,7 @@ export GEMINI_API_KEY="your-key"
 Uses embedded H2 database with auto-server mode. Data persists to `backend/data/todo-db.mv.db`.
 
 ### Production
-Uses Supabase (PostgreSQL) with connection pooling. Schema is initialized automatically via Kubernetes init container on deploy.
+Uses Supabase (PostgreSQL) with SSL. Schema is initialized automatically on application startup.
 
 ### Configuration
 Database settings are controlled via environment variables:

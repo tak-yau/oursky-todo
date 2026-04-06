@@ -15,39 +15,28 @@ This guide explains how to deploy the TODO application with AI suggestions to a 
 │                                                                  │
 │  ┌─────────────────────┐      ┌──────────────────────────────┐  │
 │  │ LoadBalancer Svc    │      │  todo-secret (K8s Secret)    │  │
-│  │ (port 80 → 80)      │      │  - Qwen API key             │  │
+│  │ (port 80 → 8080)    │      │  - Qwen API key             │  │
 │  │                      │      │  - Gemini API key            │  │
 │  └──────────┬──────────┘      │  - Supabase credentials      │  │
 │             │                 └──────────────┬───────────────┘  │
 │             ▼                                │                  │
-│  ┌─────────────────────┐      ┌──────────────▼───────────────┐  │
-│  │ Frontend (×2)       │      │  db-migrations (ConfigMap)   │  │
-│  │ Vue 3 + Nginx       │      │  - V1__initial_schema.sql    │  │
-│  └──────────┬──────────┘      └──────────────┬───────────────┘  │
-│             │ HTTP                            │                  │
-│             ▼                                 │                  │
-│  ┌─────────────────────┐                      │                  │
-│  │ Backend (×2)        │                      │                  │
-│  │ Scala + http4s      │◄─────────────────────┘                  │
+│  ┌─────────────────────┐                     │                  │
+│  │ Backend (×2)        │                     │                  │
+│  │ Scala + Pekko HTTP  │◄────────────────────┘                  │
 │  │                     │                                         │
 │  │  ┌───────────────┐  │                                         │
-│  │  │ db-migrate    │  │  (init container)                       │
-│  │  │ postgres:17   │  │                                         │
+│  │  │ GuardianActor │  │  Routes commands to:                    │
+│  │  │               │  │  - TodoActor (CRUD)                     │
+│  │  │               │  │  - AISuggestionActor (AI)              │
 │  │  └───────────────┘  │                                         │
 │  └──────────┬──────────┘                                         │
 └─────────────┼────────────────────────────────────────────────────┘
-              │ JDBC (PostgreSQL)
+              │ JDBC (PostgreSQL, SSL)
               ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │  Supabase (PostgreSQL)                                           │
-│  <supabase-host>:<supabase-port>                                 │
+│  aws-1-us-east-2.pooler.supabase.com:5432                        │
 └──────────────────────────────────────────────────────────────────┘
-
-  ┌──────────────────┐
-  │  GCR Registry    │  (deployment-time only)
-  │  - todo-backend  │────► docker pull on pod start
-  │  - todo-frontend │
-  └──────────────────┘
 ```
 
 ## Quick Start
@@ -71,27 +60,23 @@ Follow the steps below for manual deployment or non-GCP clusters.
 
 ## Building Docker Images
 
-### For GCP Deployment (via deploy.sh)
-
-The deployment script automatically builds and pushes images:
+### Production Image (jlink-optimized)
 
 ```bash
-# Backend image pushed to GCR
-gcr.io/your-project-id/todo-backend:latest
-
-# Frontend image pushed to GCR
-gcr.io/your-project-id/todo-frontend:latest
-```
-
-### For Local/Manual Deployment
-
-```bash
-# Build backend image
+# Build backend image (~179MB)
 docker build -f Dockerfile.backend -t todo-backend:latest .
-
-# Build frontend image
-docker build -f Dockerfile.frontend -t todo-frontend:latest .
 ```
+
+The image uses a multi-stage build with `jlink` to create a custom minimal JRE containing only required modules.
+
+### Native Image (Experimental)
+
+```bash
+# Build native image (blocked by Pekko/GraalVM Unsafe incompatibility)
+docker build -f Dockerfile.native -t todo-backend-native:latest .
+```
+
+> **Note**: Native image compilation fails at runtime due to `sun.misc.Unsafe` incompatibility with Pekko 1.3.x. The Dockerfile is included for future use.
 
 ## Database Configuration
 
@@ -108,14 +93,14 @@ docker build -f Dockerfile.frontend -t todo-frontend:latest .
 
 ### Schema Initialization
 
-Database schema is automatically initialized on deployment via a Kubernetes init container:
+Database schema is automatically initialized on application startup. The `TodoApp` main method creates tables if they don't exist:
 
-1. The `db-migrate` init container runs before the backend starts
-2. It uses `postgres:17-alpine` with `psql` to execute migration scripts
-3. Migration scripts are stored in `backend/src/main/resources/db/` as `V1__initial_schema.sql`
-4. Uses `CREATE TABLE IF NOT EXISTS` for idempotent execution — safe to run on every deploy
+```scala
+val tables = new Tables(profile)
+Await.result(db.run(tables.createSchema), 10.seconds)
+```
 
-To add future migrations, create new SQL files (e.g., `V2__add_indexes.sql`) and update the init container command in `gcp-deployment.yaml`.
+This uses `CREATE TABLE IF NOT EXISTS` for idempotent execution — safe to run on every deploy. No init container or migration scripts needed.
 
 ### Local Development (H2)
 
@@ -137,20 +122,17 @@ cd backend && sbt run
 
 ## Deploying to Kubernetes
 
-### Using deploy.sh (Recommended)
+### Kubernetes Manifests
 
-The `deploy.sh` script handles the entire deployment process:
+The `k8s/` directory contains all manifests:
 
-1. Validates prerequisites (gcloud, kubectl, docker)
-2. Builds backend JAR with `sbt assembly`
-3. Builds and pushes Docker images to GCR
-4. Creates GKE cluster (if not exists)
-5. Applies Kubernetes manifests with environment variable substitution
-6. Waits for pods to become ready
-
-```bash
-./deploy.sh
-```
+| File | Description |
+|---|---|
+| `deployment.yaml` | Backend deployment with 2 replicas, resource limits, probes |
+| `service.yaml` | ClusterIP service (port 80 → 8080) |
+| `configmap.yaml` | Non-sensitive config (DB_TYPE, etc.) |
+| `secret.yaml` | Sensitive data (DB credentials, API keys) |
+| `hpa.yaml` | Horizontal Pod Autoscaler (2-10 replicas) |
 
 ### Manual Deployment
 
@@ -160,33 +142,39 @@ The `deploy.sh` script handles the entire deployment process:
 kubectl create namespace todo-app-prod --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-2. Create the secret with your credentials:
+2. Update `k8s/secret.yaml` with base64-encoded credentials:
 
 ```bash
-export QWEN_API_KEY="your-qwen-key"
-export GEMINI_API_KEY="your-api-key"
-export SUPABASE_HOST="aws-1-us-east-2.pooler.supabase.com"
-export SUPABASE_PORT="5432"
-export SUPABASE_USER="postgres.<project-ref>"
-export SUPABASE_PASSWORD="your-password"
-export SUPABASE_DB="postgres"
-export PROJECT_ID="your-gcp-project"
-
-envsubst < gcp-deployment.yaml | kubectl apply -f -
+echo -n "your-db-user" | base64
+echo -n "your-db-password" | base64
 ```
 
-3. Wait for deployments to roll out:
+Edit `k8s/secret.yaml` with the encoded values, then apply:
 
 ```bash
-kubectl rollout status deployment/todo-backend-deployment -n todo-app-prod
-kubectl rollout status deployment/todo-frontend-deployment -n todo-app-prod
+kubectl apply -f k8s/secret.yaml -n todo-app-prod
+```
+
+3. Apply remaining manifests:
+
+```bash
+kubectl apply -f k8s/configmap.yaml -n todo-app-prod
+kubectl apply -f k8s/deployment.yaml -n todo-app-prod
+kubectl apply -f k8s/service.yaml -n todo-app-prod
+kubectl apply -f k8s/hpa.yaml -n todo-app-prod
+```
+
+4. Wait for deployment to roll out:
+
+```bash
+kubectl rollout status deployment/todo-backend -n todo-app-prod
 ```
 
 ## Accessing the Application
 
 After deployment, you can access the application:
 
-1. Get the external IP of the frontend service:
+1. Get the external IP of the service:
 
 ```bash
 kubectl -n todo-app-prod get services
@@ -194,102 +182,27 @@ kubectl -n todo-app-prod get services
 
 2. Visit `http://<EXTERNAL-IP>` in your browser.
 
-3. Or use the start script which displays the URL automatically:
-
-```bash
-./start-cluster.sh  # Shows: Access your application at: http://<IP>
-```
-
 ## Components
 
 The deployment includes:
 
 - **Namespace**: `todo-app-prod` — Isolated environment for production
-- **todo-secret**: Secret containing Qwen and Gemini API keys and Supabase credentials
-- **db-migrations**: ConfigMap containing SQL migration scripts
-- **todo-backend-deployment**: Scala backend service (2 replicas) running on port 8080
-  - **Init container**: `db-migrate` — Runs database migrations before app starts
-- **todo-backend-service**: Internal ClusterIP service for backend
-- **todo-frontend-deployment**: Vue frontend with Nginx (2 replicas) running on port 80
-- **todo-frontend-service**: External LoadBalancer service for frontend access
-
-## Cluster Management Scripts
-
-### Start the Cluster
-
-Brings all components up and scales to 2 replicas each:
-
-```bash
-./start-cluster.sh
-```
-
-**What it does:**
-
-- Creates namespace `todo-app-prod` if needed
-- Applies Kubernetes manifests from `gcp-deployment.yaml`
-- Scales deployments to 2 replicas each
-- Waits for pods to become ready
-- Displays the external IP address
-
-### Stop the Cluster
-
-Gracefully stops all pods while preserving configuration:
-
-```bash
-./stop-cluster.sh
-```
-
-**What it does:**
-
-- Scales all deployments to 0 replicas
-- Waits for pod termination
-- Preserves services (to avoid reconfiguration)
-
-**Note:** To stop LoadBalancer charges completely:
-
-```bash
-kubectl delete svc -n todo-app-prod --all
-```
-
-### Restart the Cluster
-
-Performs a zero-downtime rolling restart:
-
-```bash
-./restart-cluster.sh  # Rolling restart (recommended)
-```
-
-For full stop/start instead:
-
-```bash
-ROLLING=false ./restart-cluster.sh
-```
-
-**What it does:**
-
-- Restarts backend first, waits for completion
-- Then restarts frontend
-- Maintains availability throughout
-
-### Quick Reference Table
-
-| Command | Description |
-|---------|-------------|
-| `./start-cluster.sh` | Start all services |
-| `./stop-cluster.sh` | Stop all services (preserve config) |
-| `./restart-cluster.sh` | Rolling restart (zero-downtime) |
-| `ROLLING=false ./restart-cluster.sh` | Full stop/start restart |
+- **todo-secret**: Secret containing database credentials and API keys
+- **todo-backend-config**: ConfigMap for non-sensitive settings
+- **todo-backend**: Backend deployment (2 replicas) running on port 8080
+  - **Security**: Non-root user, read-only filesystem, no privilege escalation
+  - **Probes**: Liveness and readiness checks on `/health`
+  - **Resources**: 250m-500m CPU, 512Mi-1Gi memory
+- **todo-backend-hpa**: Autoscaler (2-10 replicas, CPU 70%, memory 80%)
 
 ## Scaling
 
-Default production configuration uses 2 replicas for both frontend and backend. To scale further:
+Default production configuration uses 2 replicas. The HPA will auto-scale between 2-10 based on load.
+
+Manual scaling:
 
 ```bash
-# Scale backend
-kubectl -n todo-app-prod scale deployment/todo-backend-deployment --replicas=3
-
-# Scale frontend
-kubectl -n todo-app-prod scale deployment/todo-frontend-deployment --replicas=3
+kubectl -n todo-app-prod scale deployment/todo-backend --replicas=3
 ```
 
 ## Troubleshooting
@@ -303,44 +216,27 @@ kubectl get pods -n todo-app-prod
 ### View pod logs:
 
 ```bash
-# Backend logs
 kubectl logs -f -l app=todo-backend -n todo-app-prod
-
-# Frontend logs
-kubectl logs -f -l todo-frontend -n todo-app-prod
-
-# Init container (database migration) logs
-kubectl logs -l app=todo-backend -n todo-app-prod -c db-migrate
 ```
 
 ### Check rollout status:
 
 ```bash
-kubectl rollout status deployment/todo-backend-deployment -n todo-app-prod
-kubectl rollout status deployment/todo-frontend-deployment -n todo-app-prod
+kubectl rollout status deployment/todo-backend -n todo-app-prod
 ```
 
 ### View rollout history:
 
 ```bash
-kubectl rollout history deployment/todo-backend-deployment -n todo-app-prod
-```
-
-### Database connectivity issues:
-
-```bash
-# Check if init container completed successfully
-kubectl describe pod -l app=todo-backend -n todo-app-prod | grep -A 10 "Init Containers"
-
-# View migration logs
-kubectl logs -l app=todo-backend -n todo-app-prod -c db-migrate --previous
+kubectl rollout history deployment/todo-backend -n todo-app-prod
 ```
 
 ### Common issues:
 
 | Issue | Solution |
 |-------|----------|
-| Backend pod not starting | Check init container logs for migration errors |
-| 502 Bad Gateway | Backend may still be starting up; check readiness probe |
-| Database connection refused | Verify Supabase credentials and network access |
-| ImagePullBackOff | Ensure GCR images exist and pull secrets are configured |
+| Backend pod not starting | Check pod logs for database connection errors |
+| CrashLoopBackOff | Verify Supabase credentials in secret |
+| Database connection refused | Verify SSL mode and network access to Supabase |
+| ImagePullBackOff | Ensure image exists in registry |
+| OOMKilled | Increase memory limit in deployment.yaml |
