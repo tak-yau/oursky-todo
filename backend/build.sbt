@@ -21,7 +21,7 @@ libraryDependencies ++= Seq(
   "com.typesafe.slick" %% "slick" % "3.5.1",
   "com.typesafe.slick" %% "slick-hikaricp" % "3.5.1",
   "org.postgresql" % "postgresql" % postgresqlVersion,
-  "com.h2database" % "h2" % "2.2.224" % Test,
+  "com.h2database" % "h2" % "2.2.224",
   "org.apache.pekko" %% "pekko-testkit" % "1.3.0" % Test,
   "org.apache.pekko" %% "pekko-http-testkit" % "1.3.0" % Test,
   "org.scalatest" %% "scalatest" % "3.2.18" % Test,
