@@ -1,7 +1,6 @@
 package com.oursky.todo.models
 
-import io.circe._
-import io.circe.generic.semiauto._
+import upickle.default.{macroRW, ReadWriter as RW}
 import sttp.tapir.Schema
 
 case class Subtask(
@@ -16,7 +15,7 @@ case class Todo(
   id: Long,
   title: String,
   completed: Boolean = false,
-  createdAt: Long = System.currentTimeMillis(),
+  createdAt: Long,
   subtasks: List[Subtask] = Nil
 )
 
@@ -29,63 +28,52 @@ case class NotificationRequest(message: String, `type`: String = "success")
 case class NotificationResponse(success: Boolean, message: String)
 case class ErrorResponse(error: String)
 
-// Semi-auto JSON derivation
 object Subtask {
-  implicit val encoder: Encoder[Subtask] = deriveEncoder[Subtask]
-  implicit val decoder: Decoder[Subtask] = deriveDecoder[Subtask]
+  implicit val rw: RW[Subtask] = macroRW
   implicit lazy val schema: Schema[Subtask] = Schema.derived[Subtask]
 }
 
 object Todo {
-  implicit val encoder: Encoder[Todo] = deriveEncoder[Todo]
-  implicit val decoder: Decoder[Todo] = deriveDecoder[Todo]
+  implicit val rw: RW[Todo] = macroRW
   implicit lazy val schema: Schema[Todo] = Schema.derived[Todo]
 }
 
 object CreateTodoRequest {
-  implicit val encoder: Encoder[CreateTodoRequest] = deriveEncoder[CreateTodoRequest]
-  implicit val decoder: Decoder[CreateTodoRequest] = deriveDecoder[CreateTodoRequest]
+  implicit val rw: RW[CreateTodoRequest] = macroRW
   implicit val schema: Schema[CreateTodoRequest] = Schema.derived[CreateTodoRequest]
 }
 
 object UpdateTodoRequest {
-  implicit val encoder: Encoder[UpdateTodoRequest] = deriveEncoder[UpdateTodoRequest]
-  implicit val decoder: Decoder[UpdateTodoRequest] = deriveDecoder[UpdateTodoRequest]
+  implicit val rw: RW[UpdateTodoRequest] = macroRW
   implicit val schema: Schema[UpdateTodoRequest] = Schema.derived[UpdateTodoRequest]
 }
 
 object AddSubtaskRequest {
-  implicit val encoder: Encoder[AddSubtaskRequest] = deriveEncoder[AddSubtaskRequest]
-  implicit val decoder: Decoder[AddSubtaskRequest] = deriveDecoder[AddSubtaskRequest]
+  implicit val rw: RW[AddSubtaskRequest] = macroRW
   implicit val schema: Schema[AddSubtaskRequest] = Schema.derived[AddSubtaskRequest]
 }
 
 object AISuggestionRequest {
-  implicit val encoder: Encoder[AISuggestionRequest] = deriveEncoder[AISuggestionRequest]
-  implicit val decoder: Decoder[AISuggestionRequest] = deriveDecoder[AISuggestionRequest]
+  implicit val rw: RW[AISuggestionRequest] = macroRW
   implicit val schema: Schema[AISuggestionRequest] = Schema.derived[AISuggestionRequest]
 }
 
 object AISuggestionResponse {
-  implicit val encoder: Encoder[AISuggestionResponse] = deriveEncoder[AISuggestionResponse]
-  implicit val decoder: Decoder[AISuggestionResponse] = deriveDecoder[AISuggestionResponse]
+  implicit val rw: RW[AISuggestionResponse] = macroRW
   implicit val schema: Schema[AISuggestionResponse] = Schema.derived[AISuggestionResponse]
 }
 
 object NotificationRequest {
-  implicit val encoder: Encoder[NotificationRequest] = deriveEncoder[NotificationRequest]
-  implicit val decoder: Decoder[NotificationRequest] = deriveDecoder[NotificationRequest]
+  implicit val rw: RW[NotificationRequest] = macroRW
   implicit val schema: Schema[NotificationRequest] = Schema.derived[NotificationRequest]
 }
 
 object NotificationResponse {
-  implicit val encoder: Encoder[NotificationResponse] = deriveEncoder[NotificationResponse]
-  implicit val decoder: Decoder[NotificationResponse] = deriveDecoder[NotificationResponse]
+  implicit val rw: RW[NotificationResponse] = macroRW
   implicit val schema: Schema[NotificationResponse] = Schema.derived[NotificationResponse]
 }
 
 object ErrorResponse {
-  implicit val encoder: Encoder[ErrorResponse] = deriveEncoder[ErrorResponse]
-  implicit val decoder: Decoder[ErrorResponse] = deriveDecoder[ErrorResponse]
+  implicit val rw: RW[ErrorResponse] = macroRW
   implicit val schema: Schema[ErrorResponse] = Schema.derived[ErrorResponse]
 }

@@ -1,12 +1,15 @@
 package com.oursky.todo
 
 import com.oursky.todo.models.*
+import com.oursky.todo.TodoError
 import sttp.tapir.*
-import sttp.tapir.json.circe.*
+import sttp.tapir.json.upickle.*
 import sttp.model.StatusCode
-import io.circe.generic.auto._
+import sttp.tapir.oneOf
+import sttp.tapir.oneOfVariant
+import sttp.tapir.statusCode
 
-class TodoRoutes(todoService: TodoService, qwenService: Option[QwenService], geminiService: Option[GeminiService]) {
+class TodoRoutes(val todoService: TodoService, val qwenService: Option[QwenService], val geminiService: Option[GeminiService]):
 
   private val hardcodedFallback = (context: String) => List(
     s"Break down '${context}' into smaller steps",
@@ -16,32 +19,26 @@ class TodoRoutes(todoService: TodoService, qwenService: Option[QwenService], gem
     s"Execute and track progress"
   )
 
-  private def getSuggestions(context: String, isSubtask: Boolean): List[String] = {
-    if (qwenService.isDefined) {
-      try {
-        qwenService.get.generateSubtaskSuggestions(context, isSubtask)
-      } catch {
-        case _: Throwable =>
-          if (geminiService.isDefined) {
-            try {
-              geminiService.get.generateSubtaskSuggestions(context, isSubtask)
-            } catch {
-              case _: Throwable => hardcodedFallback(context)
-            }
-          } else {
-            hardcodedFallback(context)
-          }
-      }
-    } else if (geminiService.isDefined) {
-      try {
-        geminiService.get.generateSubtaskSuggestions(context, isSubtask)
-      } catch {
-        case _: Throwable => hardcodedFallback(context)
-      }
-    } else {
-      hardcodedFallback(context)
-    }
-  }
+  private def getSuggestions(context: String, isSubtask: Boolean): List[String] =
+    if qwenService.isDefined then
+      try qwenService.get.generateSubtaskSuggestions(context, isSubtask)
+      catch case _: Throwable =>
+        if geminiService.isDefined then
+          try geminiService.get.generateSubtaskSuggestions(context, isSubtask)
+          catch case _: Throwable => hardcodedFallback(context)
+        else hardcodedFallback(context)
+    else if geminiService.isDefined then
+      try geminiService.get.generateSubtaskSuggestions(context, isSubtask)
+      catch case _: Throwable => hardcodedFallback(context)
+    else hardcodedFallback(context)
+
+  private def errorToStatus(error: TodoError): StatusCode = error match
+    case TodoError.NotFound(_) => StatusCode.NotFound
+    case TodoError.MaxDepthExceeded => StatusCode.BadRequest
+
+  private def errorToMessage(error: TodoError): String = error match
+    case TodoError.NotFound(msg) => msg
+    case TodoError.MaxDepthExceeded => "Maximum subtask depth exceeded"
 
   private val healthEndpoint = endpoint.get
     .in("health")
@@ -51,100 +48,105 @@ class TodoRoutes(todoService: TodoService, qwenService: Option[QwenService], gem
   private val todosGetEndpoint = endpoint.get
     .in("api" / "todos")
     .out(jsonBody[List[Todo]])
-    .handle { _ =>
-      Right(todoService.getAll)
-    }
+    .handle(_ => Right(todoService.getAll))
 
   private val todosPostEndpoint = endpoint.post
     .in("api" / "todos")
     .in(jsonBody[CreateTodoRequest])
     .out(jsonBody[Todo])
     .out(statusCode(StatusCode.Created))
-    .handle { body =>
-      Right(todoService.create(body.title))
-    }
+    .handle(body => Right(todoService.create(body.title)))
 
   private val todoGetEndpoint = endpoint.get
     .in("api" / "todos" / path[Long]("id"))
     .out(jsonBody[Todo])
-    .errorOut(jsonBody[ErrorResponse])
+    .errorOut(oneOf(
+      oneOfVariant(StatusCode.NotFound, jsonBody[ErrorResponse])
+    ))
     .handle { id =>
-      todoService.getById(id) match {
-        case Some(todo) => Right(todo)
-        case None => Left(ErrorResponse("Todo not found"))
-      }
+      todoService.getById(id) match
+        case Right(todo) => Right(todo)
+        case Left(error) => Left(ErrorResponse(errorToMessage(error)))
     }
 
   private val todoPutEndpoint = endpoint.put
     .in("api" / "todos" / path[Long]("id"))
     .in(jsonBody[UpdateTodoRequest])
     .out(jsonBody[Todo])
-    .errorOut(jsonBody[ErrorResponse])
+    .errorOut(oneOf(
+      oneOfVariant(StatusCode.NotFound, jsonBody[ErrorResponse]),
+      oneOfVariant(StatusCode.BadRequest, jsonBody[ErrorResponse])
+    ))
     .handle { (id, body) =>
-      todoService.update(id, body.title, body.completed) match {
-        case Some(todo) => Right(todo)
-        case None => Left(ErrorResponse("Todo not found"))
-      }
+      todoService.update(id, body.title, body.completed) match
+        case Right(todo) => Right(todo)
+        case Left(error) => Left(ErrorResponse(errorToMessage(error)))
     }
 
   private val todoDeleteEndpoint = endpoint.delete
     .in("api" / "todos" / path[Long]("id"))
     .out(statusCode(StatusCode.NoContent))
-    .errorOut(jsonBody[ErrorResponse])
+    .errorOut(oneOf(
+      oneOfVariant(StatusCode.NotFound, jsonBody[ErrorResponse])
+    ))
     .handle { id =>
-      if (todoService.delete(id)) Right(())
-      else Left(ErrorResponse("Todo not found"))
+      todoService.delete(id) match
+        case Right(_) => Right(())
+        case Left(error) => Left(ErrorResponse(errorToMessage(error)))
     }
 
   private val subtasksPostEndpoint = endpoint.post
     .in("api" / "todos" / path[Long]("todoId") / "subtasks")
     .in(jsonBody[AddSubtaskRequest])
     .out(jsonBody[Todo])
-    .errorOut(jsonBody[ErrorResponse])
+    .errorOut(oneOf(
+      oneOfVariant(StatusCode.NotFound, jsonBody[ErrorResponse]),
+      oneOfVariant(StatusCode.BadRequest, jsonBody[ErrorResponse])
+    ))
     .handle { (todoId, body) =>
-      todoService.addSubtask(todoId, body.subtaskTitle, body.parentId) match {
-        case Some(todo) => Right(todo)
-        case None => Left(ErrorResponse("Todo not found"))
-      }
+      todoService.addSubtask(todoId, body.subtaskTitle, body.parentId) match
+        case Right(todo) => Right(todo)
+        case Left(error) => Left(ErrorResponse(errorToMessage(error)))
     }
 
   private val subtasksPutEndpoint = endpoint.put
     .in("api" / "todos" / path[Long]("todoId") / "subtasks" / path[Long]("subtaskId"))
     .in(jsonBody[UpdateTodoRequest])
     .out(jsonBody[Todo])
-    .errorOut(jsonBody[ErrorResponse])
+    .errorOut(oneOf(
+      oneOfVariant(StatusCode.NotFound, jsonBody[ErrorResponse])
+    ))
     .handle { (todoId, subtaskId, body) =>
-      todoService.updateSubtask(todoId, subtaskId, body.completed) match {
-        case Some(todo) => Right(todo)
-        case None => Left(ErrorResponse("Subtask not found"))
-      }
+      todoService.updateSubtask(todoId, subtaskId, body.completed) match
+        case Right(todo) => Right(todo)
+        case Left(error) => Left(ErrorResponse(errorToMessage(error)))
     }
 
   private val subtasksDeleteEndpoint = endpoint.delete
     .in("api" / "todos" / path[Long]("todoId") / "subtasks" / path[Long]("subtaskId"))
     .out(statusCode(StatusCode.NoContent))
-    .errorOut(jsonBody[ErrorResponse])
+    .errorOut(oneOf(
+      oneOfVariant(StatusCode.NotFound, jsonBody[ErrorResponse])
+    ))
     .handle { (todoId, subtaskId) =>
-      todoService.deleteSubtask(todoId, subtaskId) match {
-        case Some(_) => Right(())
-        case None => Left(ErrorResponse("Subtask not found"))
-      }
+      todoService.deleteSubtask(todoId, subtaskId) match
+        case Right(_) => Right(())
+        case Left(error) => Left(ErrorResponse(errorToMessage(error)))
     }
 
   private val suggestionsEndpoint = endpoint.post
     .in("api" / "ai" / "suggestions")
     .in(jsonBody[AISuggestionRequest])
     .out(jsonBody[AISuggestionResponse])
-    .errorOut(jsonBody[ErrorResponse])
+    .errorOut(oneOf(
+      oneOfVariant(StatusCode.ServiceUnavailable, jsonBody[ErrorResponse])
+    ))
     .handle { body =>
-      if (qwenService.isDefined || geminiService.isDefined) {
+      if qwenService.isDefined || geminiService.isDefined then
         val isSubtask = body.subtaskId.isDefined
-        val context = body.title
-        val suggestions = getSuggestions(context, isSubtask)
-        Right(AISuggestionResponse(suggestions.take(5)))
-      } else {
+        Right(AISuggestionResponse(getSuggestions(body.title, isSubtask).take(5)))
+      else
         Left(ErrorResponse("AI service not configured"))
-      }
     }
 
   private val notificationsEndpoint = endpoint.post
@@ -169,4 +171,3 @@ class TodoRoutes(todoService: TodoService, qwenService: Option[QwenService], gem
     suggestionsEndpoint,
     notificationsEndpoint
   )
-}

@@ -2,32 +2,50 @@ package com.oursky.todo
 
 import munit.FunSuite
 import com.oursky.todo.models.{Todo, Subtask}
-import com.oursky.todo.db.{Tables, TodoRepository}
-import slick.jdbc.H2Profile
-import slick.jdbc.JdbcBackend
-import scala.concurrent.ExecutionContext
-import scala.concurrent.Await
-import scala.concurrent.duration._
+import com.oursky.todo.db.{DB, TodoModel}
+import com.augustnagro.magnum.*
+import scala.util.Using
+import javax.sql.DataSource
+import com.zaxxer.hikari.HikariDataSource
 
-class TodoServiceSuite extends FunSuite {
-  implicit val ec: ExecutionContext = ExecutionContext.global
+class TodoServiceSuite extends FunSuite:
 
   private var service: TodoService = _
-  private var db: JdbcBackend.Database = _
-  private var testCounter = 0
+  private var db: DB = _
+  private var ds: HikariDataSource = _
 
-  override def beforeEach(context: BeforeEach): Unit = {
-    testCounter += 1
-    db = JdbcBackend.Database.forURL(s"jdbc:h2:mem:test$testCounter;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-    val tables = new Tables(H2Profile)
-    Await.result(db.run(tables.createSchema), 10.seconds)
-    val repo = new TodoRepository(db, tables)
-    service = new TodoService(repo)
-  }
+  private def createInMemoryDB(): (DB, HikariDataSource) =
+    val dbName = java.util.UUID.randomUUID().toString.replace("-", "")
+    val ds = HikariDataSource()
+    ds.setJdbcUrl(s"jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1")
+    ds.setUsername("sa")
+    ds.setPassword("")
+    ds.setMaximumPoolSize(1)
+    val initSql = """CREATE TABLE IF NOT EXISTS todo_row (
+          |  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+          |  title VARCHAR(500) NOT NULL,
+          |  completed BOOLEAN NOT NULL DEFAULT FALSE,
+          |  created_at BIGINT NOT NULL
+          |);
+          |CREATE TABLE IF NOT EXISTS subtask_row (
+          |  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+          |  todo_id BIGINT NOT NULL,
+          |  title VARCHAR(500) NOT NULL,
+          |  completed BOOLEAN NOT NULL DEFAULT FALSE,
+          |  parent_id BIGINT,
+          |  depth INT NOT NULL DEFAULT 1
+          |);""".stripMargin
+    (DB.create(ds, Some(initSql)), ds)
 
-  override def afterEach(context: AfterEach): Unit = {
-    if (db != null) db.close()
-  }
+  override def beforeEach(context: BeforeEach): Unit =
+    val (newDb, newDs) = createInMemoryDB()
+    db = newDb
+    ds = newDs
+    val todoModel = new TodoModel(db)
+    service = new TodoService(todoModel, db)
+
+  override def afterEach(context: AfterEach): Unit =
+    ds.close()
 
   test("create todo should return todo with id") {
     val todo = service.create("Test Task")
@@ -46,27 +64,39 @@ class TodoServiceSuite extends FunSuite {
   test("update todo should change title") {
     val todo = service.create("Original")
     val updated = service.update(todo.id, Some("Updated"), None)
-    assertEquals(updated.get.title, "Updated")
+    assertEquals(updated match
+      case Right(t) => t.title
+      case Left(_) => "failed", "Updated")
   }
 
   test("update todo should change completed status") {
     val todo = service.create("Task")
     val updated = service.update(todo.id, None, Some(true))
-    assertEquals(updated.get.completed, true)
+    assertEquals(updated match
+      case Right(t) => t.completed
+      case Left(_) => false, true)
   }
 
   test("add subtask should work") {
     val todo = service.create("Parent Task")
     val updated = service.addSubtask(todo.id, "Child Task", None)
-    assertEquals(updated.get.subtasks.length, 1)
-    assertEquals(updated.get.subtasks.head.title, "Child Task")
-    assertEquals(updated.get.subtasks.head.depth, 1)
+    assertEquals(updated match
+      case Right(t) => t.subtasks.length
+      case Left(_) => 0, 1)
+    assertEquals(updated match
+      case Right(t) => t.subtasks.head.title
+      case Left(_) => "", "Child Task")
+    assertEquals(updated match
+      case Right(t) => t.subtasks.head.depth
+      case Left(_) => 0, 1)
   }
 
   test("delete todo should remove from list") {
     service.create("To Delete")
     val deleted = service.delete(1L)
-    assertEquals(deleted, true)
+    assertEquals(deleted match
+      case Right(()) => true
+      case Left(_) => false, true)
     assertEquals(service.getAll.length, 0)
   }
 
@@ -83,7 +113,9 @@ class TodoServiceSuite extends FunSuite {
     var parentId: Option[Long] = None
     for (i <- 1 to 4) {
       val updated = service.addSubtask(todo.id, s"Subtask level $i", parentId)
-      parentId = updated.flatMap(t => findSubtaskByDepth(t.subtasks, i).map(_.id))
+      parentId = updated match
+        case Right(t) => findSubtaskByDepth(t.subtasks, i).map(_.id)
+        case Left(_) => None
     }
 
     intercept[IllegalArgumentException] {
@@ -97,4 +129,3 @@ class TodoServiceSuite extends FunSuite {
     assertEquals(todos.length, 1)
     assertEquals(todos.head.title, "Persist Test")
   }
-}

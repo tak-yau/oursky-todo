@@ -1,31 +1,35 @@
 package com.oursky.todo.db
 
-case class TodoRow(
-  id: Long,
+import com.augustnagro.magnum.*
+
+case class TodoRowCreator(
   title: String,
   completed: Boolean,
   createdAt: Long
-)
+) derives DbCodec
 
-object TodoRow {
-  def fromTuple(t: (Long, String, Boolean, Long)): TodoRow =
-    TodoRow(t._1, t._2, t._3, t._4)
-  def toTuple(r: TodoRow): Option[(Long, String, Boolean, Long)] =
-    Some((r.id, r.title, r.completed, r.createdAt))
-}
+@Table(H2DbType, SqlNameMapper.CamelToSnakeCase)
+case class TodoRow(
+  @Id id: Long,
+  title: String,
+  completed: Boolean,
+  createdAt: Long
+) derives DbCodec
 
-case class SubtaskRow(
-  id: Long,
+case class SubtaskRowCreator(
   todoId: Long,
   title: String,
   completed: Boolean,
   parentId: Option[Long],
   depth: Int
-)
+) derives DbCodec
 
-object SubtaskRow {
-  def fromTuple(t: (Long, Long, String, Boolean, Option[Long], Int)): SubtaskRow =
-    SubtaskRow(t._1, t._2, t._3, t._4, t._5, t._6)
-  def toTuple(r: SubtaskRow): Option[(Long, Long, String, Boolean, Option[Long], Int)] =
-    Some((r.id, r.todoId, r.title, r.completed, r.parentId, r.depth))
-}
+@Table(H2DbType, SqlNameMapper.CamelToSnakeCase)
+case class SubtaskRow(
+  @Id id: Long,
+  todoId: Long,
+  title: String,
+  completed: Boolean,
+  parentId: Option[Long],
+  depth: Int
+) derives DbCodec

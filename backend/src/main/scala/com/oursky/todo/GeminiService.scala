@@ -1,16 +1,14 @@
 package com.oursky.todo
 
-import io.circe.{Json, parser}
-import java.net.URI
-import java.net.http.{HttpClient, HttpRequest, HttpResponse}
-import java.time.Duration
+import sttp.client4.*
+import upickle.default.*
 
-class GeminiService(client: HttpClient, apiKey: String) {
+class GeminiService(backend: SyncBackend, apiKey: String):
   private val model = "gemini-2.5-flash"
-  private val geminiUrl = s"https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=$apiKey"
+  private val geminiUrl = uri"https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=$apiKey"
 
-  def generateSubtaskSuggestions(context: String, isSubtask: Boolean = false): List[String] = {
-    val prompt = if (isSubtask) {
+  def generateSubtaskSuggestions(context: String, isSubtask: Boolean = false): List[String] =
+    val prompt = if isSubtask then
       s"""|You are a helpful task planning assistant for Oursky Todo app.
           |
           |The user wants to break down this SUBTASK into smaller, more specific action steps:
@@ -25,7 +23,7 @@ class GeminiService(client: HttpClient, apiKey: String) {
           |
           |Example: ["Step 1", "Step 2", "Step 3", "Step 4", "Step 5"]
           |""".stripMargin
-    } else {
+    else
       s"""|You are a helpful task planning assistant for Oursky Todo app.
           |
           |The user wants to break down this TASK into major subtasks:
@@ -40,105 +38,72 @@ class GeminiService(client: HttpClient, apiKey: String) {
           |
           |Example: ["Step 1", "Step 2", "Step 3", "Step 4", "Step 5"]
           |""".stripMargin
-    }
 
-    val requestBody = s"""{
-      "contents": [{
-        "parts": [{"text": ${circeToJson(prompt)}}]
-      }],
-      "generationConfig": {
-        "temperature": 0.9,
-        "topK": 40,
-        "topP": 0.9,
-        "maxOutputTokens": 512
-      }
-    }"""
+    val requestBody = ujson.Obj(
+      "contents" -> ujson.Arr(
+        ujson.Obj(
+          "parts" -> ujson.Arr(
+            ujson.Obj("text" -> prompt)
+          )
+        )
+      ),
+      "generationConfig" -> ujson.Obj(
+        "temperature" -> 0.9,
+        "topK" -> 40,
+        "topP" -> 0.9,
+        "maxOutputTokens" -> 512
+      )
+    )
 
-    val request = HttpRequest.newBuilder()
-      .uri(URI.create(geminiUrl))
-      .timeout(Duration.ofSeconds(30))
-      .header("Content-Type", "application/json")
-      .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-      .build()
+    val request = basicRequest
+      .post(geminiUrl)
+      .body(ujson.write(requestBody))
+      .contentType("application/json")
 
-    val response = client.send(request, HttpResponse.BodyHandlers.ofString())
-    val json = parser.parse(response.body()).getOrElse(Json.Null)
-    extractSuggestions(json) match {
-      case Right(suggestions) => suggestions
-      case Left(err) => throw err
-    }
-  }
+    val response = request.send(backend)
+    response.body match
+      case Right(jsonStr) =>
+        val json = upickle.default.read[ujson.Value](jsonStr)
+        extractSuggestions(json) match
+          case Right(suggestions) => suggestions
+          case Left(err) => throw err
+      case Left(err) =>
+        throw new RuntimeException(s"Gemini API request failed: ${err}")
 
-  private def circeToJson(s: String): String = {
-    val escaped = s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-    s""""$escaped""""
-  }
-
-  private def extractSuggestions(json: Json): Either[Throwable, List[String]] = {
-    try {
+  private def extractSuggestions(json: ujson.Value): Either[Throwable, List[String]] =
+    try
       val text = extractTextFromResponse(json)
-
-      text match {
+      text match
         case Some(content) =>
           val jsonStart = content.indexOf("[")
           val jsonEnd = content.lastIndexOf("]") + 1
-
-          if (jsonStart >= 0 && jsonEnd > jsonStart) {
+          if jsonStart >= 0 && jsonEnd > jsonStart then
             val jsonString = content.substring(jsonStart, jsonEnd)
-            parser.parse(jsonString).flatMap(_.as[List[String]]) match {
-              case Right(list) if list.nonEmpty => Right(list)
-              case Right(_) => Left(new Throwable("Empty suggestions list"))
-              case Left(err) => Left(new Throwable(s"JSON parse error: ${err.getMessage}"))
-            }
-          } else {
+            try
+              val parsed = upickle.default.read[List[String]](jsonString)
+              if parsed.nonEmpty then Right(parsed)
+              else Left(new Throwable("Empty suggestions list"))
+            catch
+              case e: Exception => Left(new Throwable(s"JSON parse error: ${e.getMessage}"))
+          else
             val lines = content.split("\n").map(_.trim).filter(line =>
               line.startsWith("\"") || line.startsWith("-") || line.startsWith("*") || line.matches("\\d+\\.")
             ).take(5).toList
-
-            if (lines.nonEmpty) {
-              Right(lines.map(cleanLine))
-            } else {
-              Left(new Throwable("No JSON array or list found in response"))
-            }
-          }
-
+            if lines.nonEmpty then Right(lines.map(cleanLine))
+            else Left(new Throwable("No JSON array or list found in response"))
         case None =>
           Left(new Throwable("No text content in response"))
-      }
-    } catch {
-      case e: Exception =>
-        Left(new Throwable(s"Extraction error: ${e.getMessage}"))
-    }
-  }
+    catch
+      case e: Exception => Left(new Throwable(s"Extraction error: ${e.getMessage}"))
 
-  private def extractTextFromResponse(json: Json): Option[String] = {
-    val text1 = for {
-      candidates <- json.hcursor.downField("candidates").downArray.downField("content").downField("parts").downArray.downField("text").as[Option[String]].toOption
-      text <- candidates
-    } yield text
+  private def extractTextFromResponse(json: ujson.Value): Option[String] =
+    try
+      Some(json("candidates")(0)("content")("parts")(0)("text").str)
+    catch
+      case _: Exception => None
 
-    if (text1.isDefined) return text1
-
-    val text2 = json.hcursor
-      .downField("candidates")
-      .downArray
-      .downField("content")
-      .downField("parts")
-      .downArray
-      .downField("text")
-      .as[Option[String]]
-      .toOption
-      .flatten
-
-    if (text2.isDefined) return text2
-
-    None
-  }
-
-  private def cleanLine(line: String): String = {
+  private def cleanLine(line: String): String =
     line.replaceAll("^[-*•]\\s*", "")
         .replaceAll("^\\d+\\.\\s*", "")
         .replaceAll("^\"|\"$", "")
         .trim
-  }
-}
