@@ -32,13 +32,13 @@ object Main:
     val geminiApiKey = sys.env.getOrElse("GEMINI_API_KEY", "")
 
     val initSql = if dbType == "h2" then Some(
-      """CREATE TABLE IF NOT EXISTS todo_row (
+      """CREATE TABLE IF NOT EXISTS todos (
         |  id BIGINT AUTO_INCREMENT PRIMARY KEY,
         |  title VARCHAR(500) NOT NULL,
         |  completed BOOLEAN NOT NULL DEFAULT FALSE,
         |  created_at BIGINT NOT NULL
         |);
-        |CREATE TABLE IF NOT EXISTS subtask_row (
+        |CREATE TABLE IF NOT EXISTS subtasks (
         |  id BIGINT AUTO_INCREMENT PRIMARY KEY,
         |  todo_id BIGINT NOT NULL,
         |  title VARCHAR(500) NOT NULL,

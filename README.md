@@ -171,14 +171,32 @@ Uses embedded H2 in-memory database (`jdbc:h2:mem:todo`). No persistence - data 
 Uses Supabase (PostgreSQL) with connection pooling. Schema is initialized automatically via Kubernetes init container on deploy.
 
 ### Schema
-The application uses Magnum ORM. By default, it maps Scala case class names using CamelToSnakeCase:
+The application uses Magnum ORM with default CamelToSnakeCase mapping:
 
 | Class | Table |
 |-------|-------|
 | `TodoRow` | `todo_row` |
 | `SubtaskRow` | `subtask_row` |
 
-You can customize table names using `@Table(DbType, "custom_name")` if needed.
+You can customize table names using a custom `SqlNameMapper`:
+
+```scala
+import com.augustnagro.magnum.*
+
+object MyCustomMapper extends SqlNameMapper:
+  def toTableName(className: String): String = className match
+    case "TodoRow" => "todos"   // Custom: TodoRow -> todos
+    case "SubtaskRow" => "subtasks"
+    case _ => SqlNameMapper.CamelToSnakeCase.toTableName(className)
+
+  def toColumnName(fieldName: String): String = 
+    SqlNameMapper.CamelToSnakeCase.toColumnName(fieldName)
+
+@Table(H2DbType, MyCustomMapper)
+case class TodoRow(...)
+```
+
+Note: Custom mapper requires the mapper object to be correctly resolved by the Scala compiler in your build context.
 
 ### Configuration
 Database settings are controlled via environment variables:

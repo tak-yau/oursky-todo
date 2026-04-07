@@ -193,17 +193,28 @@ Database schema is automatically initialized on deployment via a Kubernetes init
 3. Migration scripts are stored in `backend/src/main/resources/db/` as `V1__initial_schema.sql`
 4. Uses `CREATE TABLE IF NOT EXISTS` for idempotent execution — safe to run on every deploy
 
-**Important:** The new stack uses Magnum ORM. By default, it maps Scala case class names using CamelToSnakeCase:
+**Schema:** The new stack uses Magnum ORM with default CamelToSnakeCase mapping:
 
-| Scala Class | Default DB Table |
-|------------|-----------------|
+| Class | Table |
+|-------|-------|
 | `TodoRow` | `todo_row` |
 | `SubtaskRow` | `subtask_row` |
 
-You can customize table names using `@Table(DbType, "custom_name")` annotation if needed:
+To use custom table names like `todos`/`subtasks`, define a custom SqlNameMapper:
 
 ```scala
-@Table(H2DbType, "todos")  // Use "todos" instead of "todo_row"
+import com.augustnagro.magnum.*
+
+object MyCustomMapper extends SqlNameMapper:
+  def toTableName(className: String): String = className match
+    case "TodoRow" => "todos"
+    case "SubtaskRow" => "subtasks"
+    case _ => SqlNameMapper.CamelToSnakeCase.toTableName(className)
+
+  def toColumnName(fieldName: String): String = 
+    SqlNameMapper.CamelToSnakeCase.toColumnName(fieldName)
+
+@Table(H2DbType, MyCustomMapper)
 case class TodoRow(...)
 ```
 
