@@ -2,20 +2,13 @@ package com.oursky.todo.db
 
 import com.augustnagro.magnum.*
 
-object MyCustomMapper extends SqlNameMapper:
-  def toTableName(className: String): String = 
-    className.replaceAll("Row$", "") + "s"
-
-  def toColumnName(fieldName: String): String = 
-    SqlNameMapper.CamelToSnakeCase.toColumnName(fieldName)
-
 case class TodoRowCreator(
   title: String,
   completed: Boolean,
   createdAt: Long
 ) derives DbCodec
 
-@Table(H2DbType, MyCustomMapper)
+@Table(H2DbType, SqlNameMapper.CamelToSnakeCase)
 case class TodoRow(
   @Id id: Long,
   title: String,
@@ -31,7 +24,7 @@ case class SubtaskRowCreator(
   depth: Int
 ) derives DbCodec
 
-@Table(H2DbType, MyCustomMapper)
+@Table(H2DbType, SqlNameMapper.CamelToSnakeCase)
 case class SubtaskRow(
   @Id id: Long,
   todoId: Long,

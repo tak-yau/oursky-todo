@@ -178,25 +178,7 @@ The application uses Magnum ORM with default CamelToSnakeCase mapping:
 | `TodoRow` | `todo_row` |
 | `SubtaskRow` | `subtask_row` |
 
-You can customize table names using a custom `SqlNameMapper`:
-
-```scala
-import com.augustnagro.magnum.*
-
-object MyCustomMapper extends SqlNameMapper:
-  def toTableName(className: String): String = className match
-    case "TodoRow" => "todos"   // Custom: TodoRow -> todos
-    case "SubtaskRow" => "subtasks"
-    case _ => SqlNameMapper.CamelToSnakeCase.toTableName(className)
-
-  def toColumnName(fieldName: String): String = 
-    SqlNameMapper.CamelToSnakeCase.toColumnName(fieldName)
-
-@Table(H2DbType, MyCustomMapper)
-case class TodoRow(...)
-```
-
-Note: Custom mapper requires the mapper object to be correctly resolved by the Scala compiler in your build context.
+**Note on Custom Table Names:** Magnum supports custom table names via `@SqlName` annotation or custom `SqlNameMapper`. However, due to Scala 3/Tapir macro position requirements in version 1.3.1, custom naming may cause compiler assertion errors. If you need custom names, consider updating to a newer Magnum version or using database-level aliases (CREATE TABLE todos AS SELECT * FROM todo_row).
 
 ### Configuration
 Database settings are controlled via environment variables:
