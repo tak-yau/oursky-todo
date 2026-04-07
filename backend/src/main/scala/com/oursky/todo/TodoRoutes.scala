@@ -109,31 +109,6 @@ class TodoRoutes(val todoService: TodoService, val qwenService: Option[QwenServi
         case Left(error) => Left(ErrorResponse(errorToMessage(error)))
     }
 
-  private val subtasksPutEndpoint = endpoint.put
-    .in("api" / "todos" / path[Long]("todoId") / "subtasks" / path[Long]("subtaskId"))
-    .in(jsonBody[UpdateTodoRequest])
-    .out(jsonBody[Todo])
-    .errorOut(oneOf(
-      oneOfVariant(StatusCode.NotFound, jsonBody[ErrorResponse])
-    ))
-    .handle { (todoId, subtaskId, body) =>
-      todoService.updateSubtask(todoId, subtaskId, body.completed) match
-        case Right(todo) => Right(todo)
-        case Left(error) => Left(ErrorResponse(errorToMessage(error)))
-    }
-
-  private val subtasksDeleteEndpoint = endpoint.delete
-    .in("api" / "todos" / path[Long]("todoId") / "subtasks" / path[Long]("subtaskId"))
-    .out(statusCode(StatusCode.NoContent))
-    .errorOut(oneOf(
-      oneOfVariant(StatusCode.NotFound, jsonBody[ErrorResponse])
-    ))
-    .handle { (todoId, subtaskId) =>
-      todoService.deleteSubtask(todoId, subtaskId) match
-        case Right(_) => Right(())
-        case Left(error) => Left(ErrorResponse(errorToMessage(error)))
-    }
-
   private val suggestionsEndpoint = endpoint.post
     .in("api" / "ai" / "suggestions")
     .in(jsonBody[AISuggestionRequest])
@@ -154,7 +129,6 @@ class TodoRoutes(val todoService: TodoService, val qwenService: Option[QwenServi
     .in(jsonBody[NotificationRequest])
     .out(jsonBody[NotificationResponse])
     .handle { body =>
-      println(s"Notification: ${body.message} (${body.`type`})")
       Right(NotificationResponse(success = true, message = body.message))
     }
 
@@ -166,8 +140,6 @@ class TodoRoutes(val todoService: TodoService, val qwenService: Option[QwenServi
     todoPutEndpoint,
     todoDeleteEndpoint,
     subtasksPostEndpoint,
-    subtasksPutEndpoint,
-    subtasksDeleteEndpoint,
     suggestionsEndpoint,
     notificationsEndpoint
   )
