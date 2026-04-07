@@ -193,7 +193,21 @@ Database schema is automatically initialized on deployment via a Kubernetes init
 3. Migration scripts are stored in `backend/src/main/resources/db/` as `V1__initial_schema.sql`
 4. Uses `CREATE TABLE IF NOT EXISTS` for idempotent execution — safe to run on every deploy
 
-**Important:** The new stack uses Magnum ORM which expects these table names:
+**Important:** The new stack uses Magnum ORM. By default, it maps Scala case class names using CamelToSnakeCase:
+
+| Scala Class | Default DB Table |
+|------------|-----------------|
+| `TodoRow` | `todo_row` |
+| `SubtaskRow` | `subtask_row` |
+
+You can customize table names using `@Table(DbType, "custom_name")` annotation if needed:
+
+```scala
+@Table(H2DbType, "todos")  // Use "todos" instead of "todo_row"
+case class TodoRow(...)
+```
+
+Default schema:
 
 ```sql
 CREATE TABLE IF NOT EXISTS todo_row (

@@ -1,6 +1,7 @@
 -- V1__initial_schema.sql
 -- Initial schema for the todo application
--- Matches Magnum table definitions in Models.scala
+-- Matches Magnum @Table annotations in Models.scala
+-- Uses CamelToSnakeCase mapping: TodoRow -> todo_row
 -- Idempotent: safe to run multiple times
 -- PostgreSQL version
 

@@ -171,12 +171,14 @@ Uses embedded H2 in-memory database (`jdbc:h2:mem:todo`). No persistence - data 
 Uses Supabase (PostgreSQL) with connection pooling. Schema is initialized automatically via Kubernetes init container on deploy.
 
 ### Schema
-The application uses Magnum ORM which expects these table names:
+The application uses Magnum ORM. By default, it maps Scala case class names using CamelToSnakeCase:
 
-| Table | Description |
-|-------|------------|
-| `todo_row` | Main todo items |
-| `subtask_row` | Nested subtasks |
+| Class | Table |
+|-------|-------|
+| `TodoRow` | `todo_row` |
+| `SubtaskRow` | `subtask_row` |
+
+You can customize table names using `@Table(DbType, "custom_name")` if needed.
 
 ### Configuration
 Database settings are controlled via environment variables:
