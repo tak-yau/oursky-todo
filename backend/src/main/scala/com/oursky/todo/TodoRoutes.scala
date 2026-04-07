@@ -4,6 +4,7 @@ import com.oursky.todo.models.*
 import com.oursky.todo.TodoError
 import sttp.tapir.*
 import sttp.tapir.json.upickle.*
+import sttp.tapir.generic.auto._
 import sttp.model.StatusCode
 import sttp.tapir.oneOf
 import sttp.tapir.oneOfVariant

@@ -1,0 +1,10 @@
+# Ignore build artifacts - will rebuild inside Docker
+#target/  # Allow for docker build
+project/target/
+*.class
+*.jar
+*.log
+.git/
+.idea/
+*.iml
+.DS_Store

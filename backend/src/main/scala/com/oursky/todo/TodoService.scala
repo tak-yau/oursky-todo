@@ -2,7 +2,6 @@ package com.oursky.todo
 
 import com.oursky.todo.models.{Todo, Subtask}
 import com.oursky.todo.db.{TodoModel, DB}
-import com.augustnagro.magnum.DbCon
 
 enum TodoError:
   case NotFound(msg: String)
