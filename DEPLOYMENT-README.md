@@ -28,6 +28,50 @@ This guide explains how to deploy the TODO application with AI suggestions to a 
 │             ▼                                 │                  │
 │  ┌─────────────────────┐                      │                  │
 │  │ Backend (×2)        │                      │                  │
+│  │ Scala + Tapir + Netty │◄─────────────────────┘                  │
+│  │                     │                                         │
+│  │  ┌───────────────┐  │                                         │
+│  │  │ db-migrate    │  │  (init container)                       │
+│  │  │ postgres:17   │  ��                                         │
+│  │  └───────────────┘  │                                         │
+│  └──────────┬──────────┘                                         │
+└─────────────┼────────────────────────────────────────────────────┘
+               │ JDBC (PostgreSQL)
+               ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  Supabase (PostgreSQL)                                           │
+│  <supabase-host>:<supabase-port>                                 │
+└──────────────────────────────────────────────────────────────────┘ 
+
+  ┌──────────────────┐
+  │  GCR Registry    │  (deployment-time only)
+  │  - todo-backend  │────► docker pull on pod start
+  │  - todo-frontend │
+  └──────────────────┘
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                        User / Browser                            │
+└──────────────────────────────┬───────────────────────────────────┘
+                               │ HTTP
+                               ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                        GKE Cluster                               │
+│                                                                  │
+│  ┌─────────────────────┐      ┌──────────────────────────────┐  │
+│  │ LoadBalancer Svc    │      │  todo-secret (K8s Secret)    │  │
+│  │ (port 80 → 80)      │      │  - Qwen API key             │  │
+│  │                      │      │  - Gemini API key            │  │
+│  └──────────┬──────────┘      │  - Supabase credentials      │  │
+│             │                 └──────────────┬───────────────┘  │
+│             ▼                                │                  │
+│  ┌─────────────────────┐      ┌──────────────▼───────────────┐  │
+│  │ Frontend (×2)       │      │  db-migrations (ConfigMap)   │  │
+│  │ Vue 3 + Nginx       │      │  - V1__initial_schema.sql    │  │
+│  └──────────┬──────────┘      └──────────────┬───────────────┘  │
+│             │ HTTP                            │                  │
+│             ▼                                 │                  │
+│  ┌─────────────────────┐                      │                  │
+│  │ Backend (×2)        │                      │                  │
 │  │ Scala + http4s      │◄─────────────────────┘                  │
 │  │                     │                                         │
 │  │  ┌───────────────┐  │                                         │
@@ -71,6 +115,23 @@ Follow the steps below for manual deployment or non-GCP clusters.
 
 ## Building Docker Images
 
+### Docker Build (New Stack)
+
+The backend uses a two-stage Docker build with jlink minimal JRE:
+
+```bash
+cd backend
+
+# Stage 1: Build the project
+sbt stage
+
+# Stage 2: Copy staged artifacts
+cp -r target/universal/stage target/docker-stage
+
+# Build Docker image with jlink
+docker build -t gcr.io/your-project-id/todo-backend:latest .
+```
+
 ### For GCP Deployment (via deploy.sh)
 
 The deployment script automatically builds and pushes images:
@@ -86,12 +147,29 @@ gcr.io/your-project-id/todo-frontend:latest
 ### For Local/Manual Deployment
 
 ```bash
-# Build backend image
-docker build -f Dockerfile.backend -t todo-backend:latest .
+# Build backend image (new Dockerfile in backend/)
+docker build -t todo-backend:latest ./backend
 
 # Build frontend image
 docker build -f Dockerfile.frontend -t todo-frontend:latest .
 ```
+
+### jlink Modules
+
+The Docker image uses a minimal JRE created with jlink:
+
+```bash
+jlink --add-modules \
+  java.sql,java.naming,java.logging,java.net.http,java.management,jdk.unsupported
+```
+
+Required because:
+- `java.sql` - Magnum database access
+- `java.naming` - JNDI for HikariCP
+- `java.logging` - Logback
+- `java.net.http` - sttp client for AI API calls
+- `java.management` - JMX (optional monitoring)
+- `jdk.unsupported` - sun.misc.Unsafe (Scala runtime)
 
 ## Database Configuration
 
@@ -114,6 +192,27 @@ Database schema is automatically initialized on deployment via a Kubernetes init
 2. It uses `postgres:17-alpine` with `psql` to execute migration scripts
 3. Migration scripts are stored in `backend/src/main/resources/db/` as `V1__initial_schema.sql`
 4. Uses `CREATE TABLE IF NOT EXISTS` for idempotent execution — safe to run on every deploy
+
+**Important:** The new stack uses Magnum ORM which expects these table names:
+
+```sql
+CREATE TABLE IF NOT EXISTS todo_row (
+  id BIGSERIAL PRIMARY KEY,
+  title VARCHAR(500) NOT NULL,
+  completed BOOLEAN NOT NULL DEFAULT false,
+  created_at BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS subtask_row (
+  id BIGSERIAL PRIMARY KEY,
+  todo_id BIGINT NOT NULL,
+  title VARCHAR(500) NOT NULL,
+  completed BOOLEAN NOT NULL DEFAULT false,
+  parent_id BIGINT,
+  depth INT NOT NULL DEFAULT 1,
+  CONSTRAINT fk_subtask_todo FOREIGN KEY (todo_id) REFERENCES todo_row(id) ON DELETE CASCADE
+);
+```
 
 To add future migrations, create new SQL files (e.g., `V2__add_indexes.sql`) and update the init container command in `gcp-deployment.yaml`.
 
@@ -344,3 +443,29 @@ kubectl logs -l app=todo-backend -n todo-app-prod -c db-migrate --previous
 | 502 Bad Gateway | Backend may still be starting up; check readiness probe |
 | Database connection refused | Verify Supabase credentials and network access |
 | ImagePullBackOff | Ensure GCR images exist and pull secrets are configured |
+| java.lang.ClassNotFoundException | Missing jlink module - ensure jdk.unsupported is included |
+| Table "TODO_ROW" not found | Schema mismatch - ensure V1__initial_schema.sql uses `todo_row` not `todos` |
+
+### Docker Troubleshooting
+
+```bash
+# Check container logs
+docker logs <container-id>
+
+# Run interactively for debugging
+docker run -it todo-backend:dev /bin/bash
+
+# Check jlink runtime
+docker run todo-backend:dev ls -la /opt/java/bin/
+
+# Test inline
+docker exec <container-id> /opt/java/bin/java -jar /app/lib/oursky-todo-backend_3-1.0.0.jar
+```
+
+### jlink Issues
+
+If you see `java.lang.ClassNotFoundException: sun.misc.Unsafe`, ensure jlink includes `jdk.unsupported`:
+
+```bash
+jlink --add-modules java.sql,java.naming,java.logging,java.net.http,java.management,jdk.unsupported
+```
