@@ -2,32 +2,32 @@ name := "oursky-todo-backend"
 version := "1.0.0"
 scalaVersion := "3.3.0"
 
-// No inline limit needed with semi-auto derivation
 scalacOptions ++= Seq(
   "-deprecation",
   "-feature"
 )
 
 libraryDependencies ++= Seq(
-  "org.typelevel" %% "cats-effect" % "3.5.1",
-  "org.http4s" %% "http4s-dsl" % "0.23.23",
-  "org.http4s" %% "http4s-ember-server" % "0.23.23",
-  "org.http4s" %% "http4s-ember-client" % "0.23.23",
-  "org.http4s" %% "http4s-circe" % "0.23.23",
-  "io.circe" %% "circe-core" % "0.14.6",
-  "io.circe" %% "circe-generic" % "0.14.6",
-  "io.circe" %% "circe-parser" % "0.14.6",
-  "com.comcast" %% "ip4s-core" % "3.3.0",
-  "org.typelevel" %% "log4cats-slf4j" % "2.6.0",
-  "ch.qos.logback" % "logback-classic" % "1.4.11",
+  // Tapir + Netty Sync (direct-style server)
+  "com.softwaremill.sttp.tapir" %% "tapir-netty-server-sync" % "1.13.6",
+  "com.softwaremill.sttp.tapir" %% "tapir-json-circe" % "1.13.6",
+  
   // Database dependencies
   "com.typesafe.slick" %% "slick" % "3.5.1",
   "com.typesafe.slick" %% "slick-hikaricp" % "3.5.1",
   "com.h2database" % "h2" % "2.2.224",
   "org.postgresql" % "postgresql" % "42.7.1",
+  
+  // JSON
+  "io.circe" %% "circe-core" % "0.14.6",
+  "io.circe" %% "circe-generic" % "0.14.6",
+  "io.circe" %% "circe-parser" % "0.14.6",
+  
+  // Logging
+  "ch.qos.logback" % "logback-classic" % "1.4.11",
+  
   // Test dependencies
-  "org.scalameta" %% "munit" % "0.7.29" % Test,
-  "org.typelevel" %% "cats-effect-testing-scalatest" % "1.4.0" % Test
+  "org.scalameta" %% "munit" % "0.7.29" % Test
 )
 
 // Enable plugins

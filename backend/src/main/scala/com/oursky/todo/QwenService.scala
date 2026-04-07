@@ -1,22 +1,15 @@
 package com.oursky.todo
 
-import cats.effect.IO
 import io.circe.{Json, parser}
-import org.http4s.client.Client
-import org.http4s.{Method, Request, Uri, Headers, Header}
-import org.http4s.headers.Authorization
-import org.http4s.circe._
-import io.circe.generic.auto._
-import org.typelevel.log4cats.Logger
-import org.typelevel.log4cats.slf4j.Slf4jLogger
+import java.net.URI
+import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import java.time.Duration
 
-class QwenService(client: Client[IO], apiKey: String) {
+class QwenService(client: HttpClient, apiKey: String) {
   private val model = "qwen/qwen3.6-plus:free"
   private val apiUrl = "https://openrouter.ai/api/v1/chat/completions"
 
-  implicit val logger: Logger[IO] = Slf4jLogger.getLogger[IO]
-
-  def generateSubtaskSuggestions(context: String, isSubtask: Boolean = false): IO[List[String]] = {
+  def generateSubtaskSuggestions(context: String, isSubtask: Boolean = false): List[String] = {
     val prompt = if (isSubtask) {
       s"""You are a helpful task planning assistant for Oursky Todo app.
 
@@ -47,36 +40,34 @@ IMPORTANT:
 Example: ["Step 1", "Step 2", "Step 3", "Step 4", "Step 5"]"""
     }
 
-    val requestBody = Json.obj(
-      "model" -> Json.fromString(model),
-      "messages" -> Json.arr(
-        Json.obj(
-          "role" -> Json.fromString("user"),
-          "content" -> Json.fromString(prompt)
-        )
-      ),
-      "temperature" -> Json.fromDoubleOrNull(0.9),
-      "max_tokens" -> Json.fromInt(512)
-    )
+    val requestBody = s"""{
+      "model": "$model",
+      "messages": [{"role": "user", "content": ${circeToJson(prompt)}}],
+      "temperature": 0.9,
+      "max_tokens": 512
+    }"""
 
-    val request = Request[IO](Method.POST, Uri.unsafeFromString(apiUrl))
-      .withHeaders(
-        Header.Raw(org.typelevel.ci.CIString("Authorization"), s"Bearer $apiKey"),
-        Header.Raw(org.typelevel.ci.CIString("HTTP-Referer"), "https://github.com/tak-yau/oursky-todo"),
-        Header.Raw(org.typelevel.ci.CIString("X-Title"), "Oursky Todo App")
-      )
-      .withEntity(requestBody)
+    val request = HttpRequest.newBuilder()
+      .uri(URI.create(apiUrl))
+      .timeout(Duration.ofSeconds(30))
+      .header("Content-Type", "application/json")
+      .header("Authorization", s"Bearer $apiKey")
+      .header("HTTP-Referer", "https://github.com/tak-yau/oursky-todo")
+      .header("X-Title", "Oursky Todo App")
+      .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+      .build()
 
-    for {
-      _ <- logger.info(s"🤖 Requesting AI suggestions via Qwen for: $context (isSubtask: $isSubtask)")
-      _ <- logger.info(s"📦 Using model: $model")
+    val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+    val json = parser.parse(response.body()).getOrElse(Json.Null)
+    extractSuggestions(json) match {
+      case Right(suggestions) => suggestions
+      case Left(err) => throw err
+    }
+  }
 
-      response <- client.expect[Json](request)
-
-      _ <- logger.info(s"✅ Got response from Qwen/OpenRouter API")
-      suggestions <- IO.fromEither(extractSuggestions(response))
-      _ <- logger.info(s"📝 Qwen generated ${suggestions.length} suggestions")
-    } yield suggestions
+  private def circeToJson(s: String): String = {
+    val escaped = s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    s""""$escaped""""
   }
 
   private def extractSuggestions(json: Json): Either[Throwable, List[String]] = {
@@ -117,21 +108,14 @@ Example: ["Step 1", "Step 2", "Step 3", "Step 4", "Step 5"]"""
   }
 
   private def extractTextFromResponse(json: Json): Option[String] = {
-    val text1 = for {
-      choices <- json.hcursor.downField("choices").downArray.downField("message").downField("content").as[Option[String]].toOption
-      t <- choices
-    } yield t
-
-    text1.orElse {
-      json.hcursor
-        .downField("choices")
-        .downArray
-        .downField("message")
-        .downField("content")
-        .as[Option[String]]
-        .toOption
-        .flatten
-    }
+    json.hcursor
+      .downField("choices")
+      .downArray
+      .downField("message")
+      .downField("content")
+      .as[Option[String]]
+      .toOption
+      .flatten
   }
 
   private def cleanLine(line: String): String = {

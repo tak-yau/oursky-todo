@@ -1,22 +1,15 @@
 package com.oursky.todo
 
-import cats.effect.IO
 import io.circe.{Json, parser}
-import org.http4s.client.Client
-import org.http4s.{Method, Request, Uri, Status}
-import org.http4s.circe._
-import io.circe.generic.auto._
-import org.typelevel.log4cats.Logger
-import org.typelevel.log4cats.slf4j.Slf4jLogger
+import java.net.URI
+import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import java.time.Duration
 
-class GeminiService(client: Client[IO], apiKey: String) {
-  // Gemini 2.5 Flash
+class GeminiService(client: HttpClient, apiKey: String) {
   private val model = "gemini-2.5-flash"
   private val geminiUrl = s"https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=$apiKey"
-  
-  implicit val logger: Logger[IO] = Slf4jLogger.getLogger[IO]
 
-  def generateSubtaskSuggestions(context: String, isSubtask: Boolean = false): IO[List[String]] = {
+  def generateSubtaskSuggestions(context: String, isSubtask: Boolean = false): List[String] = {
     val prompt = if (isSubtask) {
       s"""|You are a helpful task planning assistant for Oursky Todo app.
           |
@@ -49,46 +42,47 @@ class GeminiService(client: Client[IO], apiKey: String) {
           |""".stripMargin
     }
 
-    val requestBody = Json.obj(
-      "contents" -> Json.arr(
-        Json.obj(
-          "parts" -> Json.arr(
-            Json.obj("text" -> Json.fromString(prompt))
-          )
-        )
-      ),
-      "generationConfig" -> Json.obj(
-        "temperature" -> Json.fromDoubleOrNull(0.9),
-        "topK" -> Json.fromInt(40),
-        "topP" -> Json.fromDoubleOrNull(0.9),
-        "maxOutputTokens" -> Json.fromInt(512)
-      )
-    )
+    val requestBody = s"""{
+      "contents": [{
+        "parts": [{"text": ${circeToJson(prompt)}}]
+      }],
+      "generationConfig": {
+        "temperature": 0.9,
+        "topK": 40,
+        "topP": 0.9,
+        "maxOutputTokens": 512
+      }
+    }"""
 
-    val request = Request[IO](Method.POST, Uri.unsafeFromString(geminiUrl))
-      .withEntity(requestBody)
+    val request = HttpRequest.newBuilder()
+      .uri(URI.create(geminiUrl))
+      .timeout(Duration.ofSeconds(30))
+      .header("Content-Type", "application/json")
+      .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+      .build()
 
-    for {
-      _ <- logger.info(s"🤖 Requesting AI suggestions for: $context (isSubtask: $isSubtask)")
-      _ <- logger.info(s"📦 Using model: $model")
-      
-      response <- client.expect[Json](request)
-      
-      _ <- logger.info(s"✅ Got response from Gemini API")
-      suggestions <- IO.fromEither(extractSuggestions(response))
-      _ <- logger.info(s"📝 Generated ${suggestions.length} suggestions")
-    } yield suggestions
+    val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+    val json = parser.parse(response.body()).getOrElse(Json.Null)
+    extractSuggestions(json) match {
+      case Right(suggestions) => suggestions
+      case Left(err) => throw err
+    }
+  }
+
+  private def circeToJson(s: String): String = {
+    val escaped = s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    s""""$escaped""""
   }
 
   private def extractSuggestions(json: Json): Either[Throwable, List[String]] = {
     try {
       val text = extractTextFromResponse(json)
-      
+
       text match {
         case Some(content) =>
           val jsonStart = content.indexOf("[")
           val jsonEnd = content.lastIndexOf("]") + 1
-          
+
           if (jsonStart >= 0 && jsonEnd > jsonStart) {
             val jsonString = content.substring(jsonStart, jsonEnd)
             parser.parse(jsonString).flatMap(_.as[List[String]]) match {
@@ -97,17 +91,17 @@ class GeminiService(client: Client[IO], apiKey: String) {
               case Left(err) => Left(new Throwable(s"JSON parse error: ${err.getMessage}"))
             }
           } else {
-            val lines = content.split("\n").map(_.trim).filter(line => 
+            val lines = content.split("\n").map(_.trim).filter(line =>
               line.startsWith("\"") || line.startsWith("-") || line.startsWith("*") || line.matches("\\d+\\.")
             ).take(5).toList
-            
+
             if (lines.nonEmpty) {
               Right(lines.map(cleanLine))
             } else {
               Left(new Throwable("No JSON array or list found in response"))
             }
           }
-          
+
         case None =>
           Left(new Throwable("No text content in response"))
       }
@@ -116,17 +110,15 @@ class GeminiService(client: Client[IO], apiKey: String) {
         Left(new Throwable(s"Extraction error: ${e.getMessage}"))
     }
   }
-  
+
   private def extractTextFromResponse(json: Json): Option[String] = {
-    // Path 1: Standard Gemini structure
     val text1 = for {
       candidates <- json.hcursor.downField("candidates").downArray.downField("content").downField("parts").downArray.downField("text").as[Option[String]].toOption
       text <- candidates
     } yield text
-    
+
     if (text1.isDefined) return text1
-    
-    // Path 2: Alternative structure
+
     val text2 = json.hcursor
       .downField("candidates")
       .downArray
@@ -137,12 +129,12 @@ class GeminiService(client: Client[IO], apiKey: String) {
       .as[Option[String]]
       .toOption
       .flatten
-    
+
     if (text2.isDefined) return text2
-    
+
     None
   }
-  
+
   private def cleanLine(line: String): String = {
     line.replaceAll("^[-*•]\\s*", "")
         .replaceAll("^\\d+\\.\\s*", "")

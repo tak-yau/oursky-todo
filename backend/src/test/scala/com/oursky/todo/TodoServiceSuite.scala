@@ -29,75 +29,71 @@ class TodoServiceSuite extends FunSuite {
     if (db != null) db.close()
   }
 
-  private def run[A](io: cats.effect.IO[A]): A = {
-    io.unsafeRunSync()(cats.effect.unsafe.IORuntime.global)
-  }
-
   test("create todo should return todo with id") {
-    val todo = run(service.create("Test Task"))
+    val todo = service.create("Test Task")
     assertEquals(todo.id, 1L)
     assertEquals(todo.title, "Test Task")
     assertEquals(todo.completed, false)
   }
 
   test("get all todos should return list") {
-    run(service.create("Task 1"))
-    run(service.create("Task 2"))
-    val todos = run(service.getAll)
+    service.create("Task 1")
+    service.create("Task 2")
+    val todos = service.getAll
     assertEquals(todos.length, 2)
   }
 
   test("update todo should change title") {
-    val todo = run(service.create("Original"))
-    val updated = run(service.update(todo.id, Some("Updated"), None))
+    val todo = service.create("Original")
+    val updated = service.update(todo.id, Some("Updated"), None)
     assertEquals(updated.get.title, "Updated")
   }
 
   test("update todo should change completed status") {
-    val todo = run(service.create("Task"))
-    val updated = run(service.update(todo.id, None, Some(true)))
+    val todo = service.create("Task")
+    val updated = service.update(todo.id, None, Some(true))
     assertEquals(updated.get.completed, true)
   }
 
   test("add subtask should work") {
-    val todo = run(service.create("Parent Task"))
-    val updated = run(service.addSubtask(todo.id, "Child Task", None))
+    val todo = service.create("Parent Task")
+    val updated = service.addSubtask(todo.id, "Child Task", None)
     assertEquals(updated.get.subtasks.length, 1)
     assertEquals(updated.get.subtasks.head.title, "Child Task")
     assertEquals(updated.get.subtasks.head.depth, 1)
   }
 
   test("delete todo should remove from list") {
-    val todo = run(service.create("To Delete"))
-    val deleted = run(service.delete(todo.id))
+    service.create("To Delete")
+    val deleted = service.delete(1L)
     assertEquals(deleted, true)
-    assertEquals(run(service.getAll).length, 0)
+    assertEquals(service.getAll.length, 0)
   }
 
-test("subtask depth should not exceed 4 levels") {
-     val todo = run(service.create("Root"))
- 
-     def findSubtaskByDepth(subtasks: List[Subtask], targetDepth: Int): Option[Subtask] = {
-       subtasks.find(_.depth == targetDepth) match {
-         case Some(st) => Some(st)
-         case None => subtasks.flatMap(st => findSubtaskByDepth(st.subtasks, targetDepth)).headOption
-       }
-     }
- 
-     var parentId: Option[Long] = None
-     for (i <- 1 to 4) {
-       val updated = run(service.addSubtask(todo.id, s"Subtask level $i", parentId))
-       parentId = updated.flatMap(t => findSubtaskByDepth(t.subtasks, i).map(_.id))
-     }
- 
-     intercept[IllegalArgumentException] {
-       run(service.addSubtask(todo.id, "Subtask level 5", parentId))
-     }
-   }
+  test("subtask depth should not exceed 4 levels") {
+    val todo = service.create("Root")
+
+    def findSubtaskByDepth(subtasks: List[Subtask], targetDepth: Int): Option[Subtask] = {
+      subtasks.find(_.depth == targetDepth) match {
+        case Some(st) => Some(st)
+        case None => subtasks.flatMap(st => findSubtaskByDepth(st.subtasks, targetDepth)).headOption
+      }
+    }
+
+    var parentId: Option[Long] = None
+    for (i <- 1 to 4) {
+      val updated = service.addSubtask(todo.id, s"Subtask level $i", parentId)
+      parentId = updated.flatMap(t => findSubtaskByDepth(t.subtasks, i).map(_.id))
+    }
+
+    intercept[IllegalArgumentException] {
+      service.addSubtask(todo.id, "Subtask level 5", parentId)
+    }
+  }
 
   test("data persists across service calls") {
-    run(service.create("Persist Test"))
-    val todos = run(service.getAll)
+    service.create("Persist Test")
+    val todos = service.getAll
     assertEquals(todos.length, 1)
     assertEquals(todos.head.title, "Persist Test")
   }
