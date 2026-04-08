@@ -20,3 +20,7 @@ CREATE TABLE IF NOT EXISTS subtask_row (
   depth INT NOT NULL DEFAULT 1,
   CONSTRAINT fk_subtask_todo FOREIGN KEY (todo_id) REFERENCES todo_row(id) ON DELETE CASCADE
 );
+
+-- Indexes for better query performance on nested subtask lookups
+CREATE INDEX IF NOT EXISTS idx_subtask_todo_id ON subtask_row(todo_id);
+CREATE INDEX IF NOT EXISTS idx_subtask_parent_id ON subtask_row(parent_id);

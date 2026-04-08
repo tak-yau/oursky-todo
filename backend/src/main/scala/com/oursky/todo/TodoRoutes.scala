@@ -12,6 +12,8 @@ import sttp.tapir.statusCode
 
 class TodoRoutes(val todoService: TodoService, val qwenService: Option[QwenService], val geminiService: Option[GeminiService]):
 
+  private def logger(msg: String): Unit = System.err.println(s"[WARN] $msg")
+
   private val hardcodedFallback = (context: String) => List(
     s"Break down '${context}' into smaller steps",
     s"Research best practices for '${context}'",
@@ -23,14 +25,19 @@ class TodoRoutes(val todoService: TodoService, val qwenService: Option[QwenServi
   private def getSuggestions(context: String, isSubtask: Boolean): List[String] =
     if qwenService.isDefined then
       try qwenService.get.generateSubtaskSuggestions(context, isSubtask)
-      catch case _: Throwable =>
+      catch case e: Throwable =>
+        logger(s"Qwen failed for '$context' (isSubtask=$isSubtask): ${e.getMessage}")
         if geminiService.isDefined then
           try geminiService.get.generateSubtaskSuggestions(context, isSubtask)
-          catch case _: Throwable => hardcodedFallback(context)
+          catch case e2: Throwable =>
+            logger(s"Gemini also failed for '$context': ${e2.getMessage}")
+            hardcodedFallback(context)
         else hardcodedFallback(context)
     else if geminiService.isDefined then
       try geminiService.get.generateSubtaskSuggestions(context, isSubtask)
-      catch case _: Throwable => hardcodedFallback(context)
+      catch case e: Throwable =>
+        logger(s"Gemini failed for '$context' (isSubtask=$isSubtask): ${e.getMessage}")
+        hardcodedFallback(context)
     else hardcodedFallback(context)
 
   private def errorToStatus(error: TodoError): StatusCode = error match

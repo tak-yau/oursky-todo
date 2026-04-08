@@ -85,7 +85,7 @@ class TodoModel(db: DB):
 
   def updateSubtask(todoId: Long, subtaskId: Long, completed: Option[Boolean])(using DbCon): Option[Todo] =
     todoRepo.findById(todoId).flatMap { todoRow =>
-      subtaskRepo.findById(subtaskId).map { existing =>
+      subtaskRepo.findById(subtaskId).filter(_.todoId == todoId).map { existing =>
         val updated = existing.copy(completed = completed.getOrElse(existing.completed))
         subtaskRepo.update(updated)
         Todo(
@@ -98,12 +98,13 @@ class TodoModel(db: DB):
     }
 
   def deleteSubtask(todoId: Long, subtaskId: Long)(using DbCon): Option[Todo] =
-    todoRepo.findById(todoId).map { todoRow =>
-      sql"DELETE FROM $s WHERE id = $subtaskId".update.run()
-      Todo(
+    todoRepo.findById(todoId).flatMap { todoRow =>
+      val deleted = sql"DELETE FROM $s WHERE id = $subtaskId AND todo_id = $todoId".update.run()
+      if deleted > 0 then Some(Todo(
         id = todoRow.id,
         title = todoRow.title,
         completed = todoRow.completed,
         createdAt = todoRow.createdAt
-      )
+      ))
+      else None
     }
