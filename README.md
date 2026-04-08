@@ -33,9 +33,13 @@ cd frontend && npm install && npm run dev
 ### Run with Docker
 
 ```bash
-# Build Docker image with jlink JRE
+# Build Docker image (requires staging step)
 cd backend
+sbt stage
+cp -r target/universal/stage target/docker-stage
 docker build -t todo-backend:dev .
+
+# Run
 docker run -p 8080:8080 todo-backend:dev
 ```
 
