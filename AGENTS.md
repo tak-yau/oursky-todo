@@ -24,7 +24,6 @@ cd backend && sbt stage && cp -r target/universal/stage target/docker-stage && d
 
 - **H2 in-memory only**: Default DB is `jdbc:h2:mem:todo` — data resets on restart.
 - **No CI/CD**: No GitHub Actions workflow for automated testing
-- **Frontend monolithic**: TodoList.vue is 684 lines, needs refactoring
 
 ## Configuration
 
