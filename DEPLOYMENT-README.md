@@ -494,3 +494,73 @@ If you see `java.lang.ClassNotFoundException: sun.misc.Unsafe`, ensure jlink inc
 ```bash
 jlink --add-modules java.sql,java.naming,java.logging,java.net.http,java.management,jdk.unsupported
 ```
+
+---
+
+## Credentials Rotation
+
+### AI API Keys (Qwen / Gemini)
+
+1. Obtain new API key from provider:
+   - **Qwen**: Get from OpenRouter (https://openrouter.ai/keys)
+   - **Gemini**: Get from Google AI Studio (https://aistudio.google.com/app/apikey)
+
+2. Update Kubernetes secret:
+
+```bash
+# Update Qwen API key
+kubectl create secret generic todo-secret \
+  --from-literal=qwen-api-key=your-new-key \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Update Gemini API key
+kubectl create secret generic todo-secret \
+  --from-literal=gemini-api-key=your-new-key \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+3. Restart pods to pick up new credentials:
+
+```bash
+kubectl rollout restart deployment/todo-backend-deployment -n todo-app-prod
+```
+
+### Supabase Credentials
+
+1. Update password in Supabase Dashboard:
+   - Go to Supabase Dashboard → Settings → Database
+   - Under "Database password", click "Reset password"
+
+2. Update Kubernetes secret:
+
+```bash
+kubectl create secret generic todo-secret \
+  --from-literal=supabase-password=your-new-password \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+3. Restart backend pods:
+
+```bash
+kubectl rollout restart deployment/todo-backend-deployment -n todo-app-prod
+```
+
+### Database Connection (Advanced)
+
+If you need to rotate the PostgreSQL user credentials:
+
+1. Update user in Supabase or your PostgreSQL instance
+2. Update the following secrets:
+   - `supabase-user`
+   - `supabase-password`
+   - `supabase-db-url` (if connection string changed)
+
+```bash
+kubectl create secret generic todo-secret \
+  --from-literal=supabase-user=postgres.xxx \
+  --from-literal=supabase-password=new-password \
+  --from-literal=supabase-db-url=jdbc:postgresql://host:5432/db \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl rollout restart deployment/todo-backend-deployment -n todo-app-prod
+```

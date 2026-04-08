@@ -4,7 +4,6 @@ import com.augustnagro.magnum.*
 import javax.sql.DataSource
 import scala.util.Using
 import java.sql.Connection
-import java.lang.reflect.Constructor
 
 class DB(dataSource: DataSource):
 
@@ -43,9 +42,17 @@ class DB(dataSource: DataSource):
     }.get
 
   private def createDbCon(conn: Connection): DbCon =
-    val constructor: Constructor[DbCon] = classOf[DbCon].getDeclaredConstructor(classOf[Connection], classOf[SqlLogger])
-    constructor.setAccessible(true)
-    constructor.newInstance(conn, SqlLogger.NoOp)
+    try
+      val constructor = classOf[DbCon].getDeclaredConstructor(classOf[Connection], classOf[SqlLogger])
+      constructor.setAccessible(true)
+      constructor.newInstance(conn, SqlLogger.NoOp)
+    catch
+      case e: Exception =>
+        throw new RuntimeException(
+          "Failed to create DbCon. This may occur if Magnum version changed its internal API. " +
+          "Consider upgrading to a newer Magnum version with public DbCon creation API.",
+          e
+        )
 
 object DB:
   def create(dataSource: DataSource, initSql: Option[String] = None): DB =
